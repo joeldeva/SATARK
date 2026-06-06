@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "source": "MoSPI GSBPM Guidelines",
+  "domains": {
+    "employment": {
+      "required_fields": ["age", "gender", "location"],
+      "validation": {
+        "age_range": [15, 80],
+        "income_range": [0, 1000000]
+      },
+      "skip_logic": {
+        "employment": ["skip_to_income_if_employed"]
+      }
+    },
+    "health": {
+      "required_fields": ["age", "gender"],
+      "validation": {
+        "age_range": [0, 120]
+      },
+      "skip_logic": {
+        "healthcare": ["skip_to_barrier_if_no_visit"]
+      }
+    },
+    "agriculture": {
+      "required_fields": ["age", "gender", "land"],
+      "validation": {
+        "age_range": [18, 90],
+        "land_range": [0, 1000]
+      },
+      "skip_logic": {}
+    },
+    "general": {
+      "required_fields": ["age", "gender"],
+      "validation": {
+        "age_range": [0, 120]
+      },
+      "skip_logic": {}
+    }
+  }
+}

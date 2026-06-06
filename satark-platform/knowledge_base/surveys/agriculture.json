@@ -1,0 +1,79 @@
+{
+  "domain": "agriculture",
+  "source": "NSS - Agriculture Survey Schedules",
+  "questions": [
+    {
+      "id": "agr_001", "text": "What is your age?",
+      "type": "number", "category": "demographic",
+      "tags": ["age", "demographic"],
+      "validation": {"min": 18, "max": 90, "type": "range"},
+      "required": true
+    },
+    {
+      "id": "agr_002", "text": "What is your gender?",
+      "type": "single_choice", "category": "demographic",
+      "tags": ["gender", "demographic"],
+      "options": [{"value": "1", "label": "Male"}, {"value": "2", "label": "Female"}, {"value": "3", "label": "Third gender"}],
+      "required": true
+    },
+    {
+      "id": "agr_003", "text": "What is the total land holding area (in hectares)?",
+      "type": "number", "category": "core",
+      "tags": ["land", "holding", "agriculture"],
+      "validation": {"min": 0, "max": 1000, "type": "range"}
+    },
+    {
+      "id": "agr_004", "text": "What is the primary crop grown in Kharif season?",
+      "type": "text", "category": "core",
+      "tags": ["crop", "kharif", "agriculture"]
+    },
+    {
+      "id": "agr_005", "text": "What is the primary crop grown in Rabi season?",
+      "type": "text", "category": "core",
+      "tags": ["crop", "rabi", "agriculture"]
+    },
+    {
+      "id": "agr_006", "text": "Do you have access to irrigation?",
+      "type": "single_choice", "category": "core",
+      "tags": ["irrigation", "agriculture", "infrastructure"],
+      "options": [
+        {"value": "1", "label": "Canal irrigation"},
+        {"value": "2", "label": "Tube well/borewell"},
+        {"value": "3", "label": "Tank/pond"},
+        {"value": "4", "label": "Rainfed only"},
+        {"value": "5", "label": "Other"}
+      ]
+    },
+    {
+      "id": "agr_007", "text": "What was your total agricultural income last year (in Rs.)?",
+      "type": "number", "category": "core",
+      "tags": ["income", "agriculture"],
+      "validation": {"min": 0, "max": 10000000, "type": "range"}
+    },
+    {
+      "id": "agr_008", "text": "Do you have a Kisan Credit Card (KCC)?",
+      "type": "single_choice", "category": "core",
+      "tags": ["credit", "kcc", "agriculture", "scheme"],
+      "options": [{"value": "1", "label": "Yes"}, {"value": "2", "label": "No"}]
+    },
+    {
+      "id": "agr_009", "text": "Are you enrolled in PM-KISAN scheme?",
+      "type": "single_choice", "category": "core",
+      "tags": ["pmkisan", "scheme", "agriculture"],
+      "options": [{"value": "1", "label": "Yes"}, {"value": "2", "label": "No"}, {"value": "3", "label": "Applied but not received"}]
+    },
+    {
+      "id": "agr_010", "text": "What is the main challenge you face in farming?",
+      "type": "multiple_choice", "category": "core",
+      "tags": ["challenge", "agriculture"],
+      "options": [
+        {"value": "1", "label": "Lack of irrigation"},
+        {"value": "2", "label": "High input costs"},
+        {"value": "3", "label": "Low market price"},
+        {"value": "4", "label": "Pest/disease"},
+        {"value": "5", "label": "Lack of credit"},
+        {"value": "6", "label": "Climate variability"}
+      ]
+    }
+  ]
+}

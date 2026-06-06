@@ -1,0 +1,179 @@
+[
+  {
+    "id": "HEALTH_001",
+    "domain": "health",
+    "category": "general_health",
+    "question": {
+      "en": "How would you rate your overall health?",
+      "hi": "आप अपने समग्र स्वास्थ्य को कैसे दर्जा देंगे?"
+    },
+    "type": "single_choice",
+    "options": [
+      {"value": "1", "label": {"en": "Excellent", "hi": "उत्कृष्ट"}},
+      {"value": "2", "label": {"en": "Very good", "hi": "बहुत अच्छा"}},
+      {"value": "3", "label": {"en": "Good", "hi": "अच्छा"}},
+      {"value": "4", "label": {"en": "Fair", "hi": "ठीक"}},
+      {"value": "5", "label": {"en": "Poor", "hi": "खराब"}}
+    ],
+    "standard": "NFHS",
+    "keywords": ["health", "overall", "general", "status"],
+    "audience": ["all"],
+    "required": true
+  },
+  {
+    "id": "HEALTH_002",
+    "domain": "health",
+    "category": "healthcare_access",
+    "question": {
+      "en": "Did you visit any health facility in the last 30 days?",
+      "hi": "क्या आपने पिछले 30 दिनों में किसी स्वास्थ्य सुविधा का दौरा किया?"
+    },
+    "type": "single_choice",
+    "options": [
+      {"value": "1", "label": {"en": "Yes", "hi": "हाँ"}},
+      {"value": "2", "label": {"en": "No", "hi": "नहीं"}}
+    ],
+    "standard": "NFHS",
+    "keywords": ["healthcare", "access", "facility", "visit", "hospital"],
+    "audience": ["all"],
+    "required": true
+  },
+  {
+    "id": "HEALTH_003",
+    "domain": "health",
+    "category": "healthcare_access",
+    "question": {
+      "en": "What type of health facility did you visit?",
+      "hi": "आपने किस प्रकार की स्वास्थ्य सुविधा का दौरा किया?"
+    },
+    "type": "single_choice",
+    "options": [
+      {"value": "1", "label": {"en": "Government hospital", "hi": "सरकारी अस्पताल"}},
+      {"value": "2", "label": {"en": "Private hospital", "hi": "निजी अस्पताल"}},
+      {"value": "3", "label": {"en": "Primary Health Centre", "hi": "प्राथमिक स्वास्थ्य केंद्र"}},
+      {"value": "4", "label": {"en": "Private clinic", "hi": "निजी क्लिनिक"}},
+      {"value": "5", "label": {"en": "Pharmacy", "hi": "दवाखाना"}},
+      {"value": "6", "label": {"en": "Traditional healer", "hi": "पारंपरिक चिकित्सक"}}
+    ],
+    "standard": "NFHS",
+    "keywords": ["facility", "hospital", "clinic", "healthcare"],
+    "audience": ["visited_facility"],
+    "required": true,
+    "routing": {
+      "show_if": "HEALTH_002 == '1'"
+    }
+  },
+  {
+    "id": "HEALTH_004",
+    "domain": "health",
+    "category": "healthcare_satisfaction",
+    "question": {
+      "en": "How satisfied were you with the healthcare service received?",
+      "hi": "प्राप्त स्वास्थ्य सेवा से आप कितने संतुष्ट थे?"
+    },
+    "type": "scale",
+    "options": [
+      {"value": "1", "label": {"en": "Very dissatisfied", "hi": "बहुत असंतुष्ट"}},
+      {"value": "2", "label": {"en": "Dissatisfied", "hi": "असंतुष्ट"}},
+      {"value": "3", "label": {"en": "Neutral", "hi": "तटस्थ"}},
+      {"value": "4", "label": {"en": "Satisfied", "hi": "संतुष्ट"}},
+      {"value": "5", "label": {"en": "Very satisfied", "hi": "बहुत संतुष्ट"}}
+    ],
+    "standard": "Custom",
+    "keywords": ["satisfaction", "service", "quality", "healthcare"],
+    "audience": ["visited_facility"],
+    "required": false,
+    "routing": {
+      "show_if": "HEALTH_002 == '1'"
+    }
+  },
+  {
+    "id": "HEALTH_005",
+    "domain": "health",
+    "category": "barriers",
+    "question": {
+      "en": "What is the main reason you did not visit a health facility?",
+      "hi": "आपने स्वास्थ्य सुविधा का दौरा नहीं करने का मुख्य कारण क्या है?"
+    },
+    "type": "single_choice",
+    "options": [
+      {"value": "1", "label": {"en": "No need", "hi": "कोई आवश्यकता नहीं"}},
+      {"value": "2", "label": {"en": "Too expensive", "hi": "बहुत महंगा"}},
+      {"value": "3", "label": {"en": "Too far", "hi": "बहुत दूर"}},
+      {"value": "4", "label": {"en": "No time", "hi": "समय नहीं"}},
+      {"value": "5", "label": {"en": "Poor quality of care", "hi": "देखभाल की खराब गुणवत्ता"}},
+      {"value": "6", "label": {"en": "Cultural reasons", "hi": "सांस्कृतिक कारण"}}
+    ],
+    "standard": "NFHS",
+    "keywords": ["barriers", "access", "reasons", "problems"],
+    "audience": ["not_visited_facility"],
+    "required": true,
+    "routing": {
+      "show_if": "HEALTH_002 == '2'"
+    }
+  },
+  {
+    "id": "HEALTH_006",
+    "domain": "health",
+    "category": "insurance",
+    "question": {
+      "en": "Do you have any health insurance coverage?",
+      "hi": "क्या आपके पास कोई स्वास्थ्य बीमा कवरेज है?"
+    },
+    "type": "single_choice",
+    "options": [
+      {"value": "1", "label": {"en": "Yes, government scheme", "hi": "हाँ, सरकारी योजना"}},
+      {"value": "2", "label": {"en": "Yes, private insurance", "hi": "हाँ, निजी बीमा"}},
+      {"value": "3", "label": {"en": "Yes, employer provided", "hi": "हाँ, नियोक्ता द्वारा प्रदान"}},
+      {"value": "4", "label": {"en": "No insurance", "hi": "कोई बीमा नहीं"}}
+    ],
+    "standard": "NFHS",
+    "keywords": ["insurance", "coverage", "scheme", "protection"],
+    "audience": ["all"],
+    "required": true
+  },
+  {
+    "id": "HEALTH_007",
+    "domain": "health",
+    "category": "chronic_conditions",
+    "question": {
+      "en": "Do you have any chronic health conditions?",
+      "hi": "क्या आपको कोई पुरानी स्वास्थ्य समस्या है?"
+    },
+    "type": "multiple_choice",
+    "options": [
+      {"value": "1", "label": {"en": "Diabetes", "hi": "मधुमेह"}},
+      {"value": "2", "label": {"en": "High blood pressure", "hi": "उच्च रक्तचाप"}},
+      {"value": "3", "label": {"en": "Heart disease", "hi": "हृदय रोग"}},
+      {"value": "4", "label": {"en": "Asthma", "hi": "दमा"}},
+      {"value": "5", "label": {"en": "Arthritis", "hi": "गठिया"}},
+      {"value": "6", "label": {"en": "None", "hi": "कोई नहीं"}}
+    ],
+    "standard": "NFHS",
+    "keywords": ["chronic", "conditions", "disease", "health problems"],
+    "audience": ["all"],
+    "required": false
+  },
+  {
+    "id": "HEALTH_008",
+    "domain": "health",
+    "category": "maternal_health",
+    "question": {
+      "en": "Are you currently pregnant?",
+      "hi": "क्या आप वर्तमान में गर्भवती हैं?"
+    },
+    "type": "single_choice",
+    "options": [
+      {"value": "1", "label": {"en": "Yes", "hi": "हाँ"}},
+      {"value": "2", "label": {"en": "No", "hi": "नहीं"}},
+      {"value": "3", "label": {"en": "Not applicable", "hi": "लागू नहीं"}}
+    ],
+    "standard": "NFHS",
+    "keywords": ["pregnancy", "maternal", "women", "health"],
+    "audience": ["women"],
+    "required": false,
+    "routing": {
+      "show_if": "DEMO_GENDER == '2' AND age >= 15 AND age <= 49"
+    }
+  }
+]

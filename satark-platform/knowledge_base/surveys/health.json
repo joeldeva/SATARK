@@ -1,0 +1,81 @@
+{
+  "domain": "health",
+  "source": "NFHS - National Family Health Survey",
+  "questions": [
+    {
+      "id": "hlt_001", "text": "What is your age?",
+      "type": "number", "category": "demographic",
+      "tags": ["age", "demographic"],
+      "validation": {"min": 0, "max": 120, "type": "range"},
+      "required": true
+    },
+    {
+      "id": "hlt_002", "text": "What is your gender?",
+      "type": "single_choice", "category": "demographic",
+      "tags": ["gender", "demographic"],
+      "options": [{"value": "1", "label": "Male"}, {"value": "2", "label": "Female"}, {"value": "3", "label": "Third gender"}],
+      "required": true
+    },
+    {
+      "id": "hlt_003", "text": "How would you rate your overall health?",
+      "type": "single_choice", "category": "core",
+      "tags": ["health", "self_rated", "satisfaction"],
+      "options": [
+        {"value": "1", "label": "Excellent"},
+        {"value": "2", "label": "Very good"},
+        {"value": "3", "label": "Good"},
+        {"value": "4", "label": "Fair"},
+        {"value": "5", "label": "Poor"}
+      ]
+    },
+    {
+      "id": "hlt_004", "text": "Did you visit any health facility in the last 3 months?",
+      "type": "single_choice", "category": "core",
+      "tags": ["healthcare", "access", "utilization"],
+      "options": [{"value": "1", "label": "Yes"}, {"value": "2", "label": "No"}]
+    },
+    {
+      "id": "hlt_005", "text": "What type of health facility did you visit?",
+      "type": "single_choice", "category": "core",
+      "tags": ["healthcare", "facility", "access"],
+      "options": [
+        {"value": "1", "label": "Government hospital"},
+        {"value": "2", "label": "PHC/CHC"},
+        {"value": "3", "label": "Private hospital"},
+        {"value": "4", "label": "AYUSH facility"},
+        {"value": "5", "label": "Other"}
+      ]
+    },
+    {
+      "id": "hlt_006", "text": "What was the main reason for not visiting a health facility when needed?",
+      "type": "single_choice", "category": "core",
+      "tags": ["healthcare", "barrier", "access"],
+      "options": [
+        {"value": "1", "label": "Too expensive"},
+        {"value": "2", "label": "Too far"},
+        {"value": "3", "label": "Long waiting time"},
+        {"value": "4", "label": "No female doctor"},
+        {"value": "5", "label": "Not serious enough"},
+        {"value": "6", "label": "Other"}
+      ]
+    },
+    {
+      "id": "hlt_007", "text": "Are you covered under any health insurance scheme?",
+      "type": "multiple_choice", "category": "core",
+      "tags": ["insurance", "health", "scheme"],
+      "options": [
+        {"value": "1", "label": "Ayushman Bharat / PMJAY"},
+        {"value": "2", "label": "State government scheme"},
+        {"value": "3", "label": "ESI"},
+        {"value": "4", "label": "Private insurance"},
+        {"value": "5", "label": "None"}
+      ]
+    },
+    {
+      "id": "hlt_008", "text": "How much did you spend on healthcare in the last month (in Rs.)?",
+      "type": "number", "category": "core",
+      "tags": ["expenditure", "healthcare", "income"],
+      "validation": {"min": 0, "max": 500000, "type": "range"}
+    }
+  ]
+}

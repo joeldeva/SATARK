@@ -1,0 +1,184 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GSBPM Compliant Survey Schema",
+  "type": "object",
+  "required": ["survey_id", "title", "domain", "questions", "metadata"],
+  "properties": {
+    "survey_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique survey identifier"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 200,
+      "description": "Survey title"
+    },
+    "domain": {
+      "type": "string",
+      "enum": ["labour", "health", "education", "agriculture", "household", "enterprise"],
+      "description": "Survey domain as per MoSPI classification"
+    },
+    "target_audience": {
+      "type": "string",
+      "description": "Target population (e.g., 'rural women', 'urban youth')"
+    },
+    "language": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["en", "hi", "bn", "te", "ta", "mr", "gu", "kn", "ml", "or"]
+      },
+      "minItems": 1,
+      "description": "Supported languages"
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/question"
+      }
+    },
+    "logic": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/routing_rule"
+      },
+      "description": "Survey routing and skip logic"
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "cross_checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/cross_validation"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["standard", "created_by", "version"],
+      "properties": {
+        "standard": {
+          "type": "string",
+          "enum": ["NSS", "NFHS", "PLFS", "ASI", "Custom"],
+          "description": "Survey standard followed"
+        },
+        "created_by": {
+          "type": "string",
+          "description": "Creator (AI/Human)"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$"
+        },
+        "gsbpm_phase": {
+          "type": "string",
+          "enum": ["design", "build", "collect", "process", "analyse", "disseminate"],
+          "description": "Current GSBPM phase"
+        },
+        "deployment_channels": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["web", "whatsapp", "ivr", "mobile_app", "paper"]
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "question": {
+      "type": "object",
+      "required": ["id", "text", "type", "required"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^Q\\d+$",
+          "description": "Question identifier (Q1, Q2, etc.)"
+        },
+        "text": {
+          "type": "object",
+          "properties": {
+            "en": {"type": "string"},
+            "hi": {"type": "string"}
+          },
+          "required": ["en"],
+          "description": "Question text in multiple languages"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["single_choice", "multiple_choice", "number", "text", "date", "scale", "matrix"],
+          "description": "Question type"
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether question is mandatory"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {"type": "string"},
+              "label": {
+                "type": "object",
+                "properties": {
+                  "en": {"type": "string"},
+                  "hi": {"type": "string"}
+                }
+              },
+              "code": {"type": "string", "description": "Standard code (NCO/NIC/ISIC)"}
+            }
+          },
+          "description": "Answer options for choice questions"
+        },
+        "validation": {
+          "type": "object",
+          "properties": {
+            "min": {"type": "number"},
+            "max": {"type": "number"},
+            "pattern": {"type": "string"},
+            "custom_rule": {"type": "string"}
+          }
+        },
+        "routing": {
+          "type": "object",
+          "properties": {
+            "condition": {"type": "string"},
+            "skip_to": {"type": "string"},
+            "show_if": {"type": "string"}
+          }
+        },
+        "standard_code": {
+          "type": "string",
+          "description": "Official question code from NSS/NFHS"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["demographic", "core", "sensitive", "follow_up"],
+          "description": "Question category for ordering"
+        }
+      }
+    },
+    "routing_rule": {
+      "type": "object",
+      "properties": {
+        "if": {"type": "string", "description": "Condition expression"},
+        "then": {"type": "string", "description": "Action to take"},
+        "skip_to": {"type": "string", "description": "Question ID to skip to"}
+      }
+    },
+    "cross_validation": {
+      "type": "object",
+      "properties": {
+        "rule": {"type": "string", "description": "Validation rule expression"},
+        "error_message": {"type": "string"},
+        "questions": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}
