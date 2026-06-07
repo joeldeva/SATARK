@@ -1,1 +1,0 @@
-# SATARK.AI Data Models

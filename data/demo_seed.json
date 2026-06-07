@@ -1,0 +1,203 @@
+{
+  "users": [
+    { "username": "admin", "password": "admin123", "role": "admin", "name": "System Admin" },
+    { "username": "sdrd", "password": "design123", "role": "sdrd", "name": "Design Officer" },
+    { "username": "fod", "password": "field123", "role": "fod", "name": "Field Supervisor" },
+    { "username": "dpd", "password": "process123", "role": "dpd", "name": "Processing Officer" },
+    { "username": "scd", "password": "coord123", "role": "scd", "name": "Coordination Officer" }
+  ],
+  "enumerators": [
+    {
+      "id": "ENUM-A",
+      "name": "Lakshmi R",
+      "region": "Chennai, Tamil Nadu",
+      "assigned": 18,
+      "completed": 15,
+      "trustScore": 92,
+      "trustLevel": "Green",
+      "trustTrend": [90, 91, 90, 92, 93, 92, 92]
+    },
+    {
+      "id": "ENUM-B",
+      "name": "Suspect Enumerator",
+      "region": "Chennai, Tamil Nadu",
+      "assigned": 12,
+      "completed": 8,
+      "trustScore": 40,
+      "trustLevel": "Red",
+      "trustTrend": [58, 55, 51, 49, 46, 43, 40]
+    }
+  ],
+  "households": [
+    {
+      "id": "HH-TN-0042",
+      "prepop": {
+        "name": "Lakshmi R",
+        "state": "Tamil Nadu",
+        "district": "Chennai"
+      }
+    }
+  ],
+  "survey": {
+    "id": "emp-2026",
+    "title": {
+      "en": "Household Employment Survey",
+      "hi": "घरेलू रोज़गार सर्वेक्षण",
+      "ta": "வீட்டு வேலைவாய்ப்பு கணக்கெடுப்பு"
+    },
+    "nodes": [
+      {
+        "id": "name",
+        "type": "text",
+        "prepop": true,
+        "q": {
+          "en": "Please confirm your name",
+          "hi": "कृपया अपना नाम पुष्टि करें",
+          "ta": "உங்கள் பெயரை உறுதிப்படுத்தவும்"
+        }
+      },
+      {
+        "id": "age",
+        "type": "number",
+        "rules": { "range": [18, 95] },
+        "q": {
+          "en": "What is your age?",
+          "hi": "आपकी आयु क्या है?",
+          "ta": "உங்கள் வயது என்ன?"
+        }
+      },
+      {
+        "id": "occupation",
+        "type": "choice",
+        "codeType": "NCO",
+        "options": ["Salaried", "Self-employed", "Farmer", "Unemployed", "Student"],
+        "q": {
+          "en": "What is your occupation?",
+          "hi": "आपका व्यवसाय क्या है?",
+          "ta": "உங்கள் தொழில் என்ன?"
+        }
+      },
+      { "id": "_branch", "type": "adaptive" },
+      {
+        "id": "income",
+        "type": "number",
+        "codeType": null,
+        "rules": {
+          "crossField": { "ifOccupation": "Unemployed", "max": 50000 },
+          "contextRef": "income"
+        },
+        "q": {
+          "en": "Monthly income (₹)?",
+          "hi": "मासिक आय (₹)?",
+          "ta": "மாதாந்திர வருமானம் (₹)?"
+        }
+      },
+      {
+        "id": "household",
+        "type": "number",
+        "rules": { "range": [1, 30] },
+        "q": {
+          "en": "Household size?",
+          "hi": "परिवार का आकार?",
+          "ta": "குடும்ப அளவு?"
+        }
+      }
+    ],
+    "branches": {
+      "Student": { "id": "institution", "q": { "en": "Which institution?", "hi": "कौन सा संस्थान?", "ta": "எந்த நிறுவனம்?" } },
+      "Unemployed": { "id": "unemp_dur", "q": { "en": "Months unemployed?", "hi": "कितने महीने बेरोज़गार?", "ta": "எத்தனை மாதங்கள் வேலை இன்றி?" } },
+      "Farmer": { "id": "land", "q": { "en": "Landholding (acres)?", "hi": "भूमि स्वामित्व (एकड़)?", "ta": "நில அளவு (ஏக்கர்)?" } },
+      "Salaried": { "id": "employer", "q": { "en": "Employer type?", "hi": "नियोक्ता का प्रकार?", "ta": "வேலை வழங்குநர் வகை?" }, "options": ["Govt", "Private"] },
+      "Self-employed": { "id": "employer", "q": { "en": "Business type?", "hi": "व्यवसाय का प्रकार?", "ta": "வணிக வகை?" }, "options": ["Own business", "Partnership"] }
+    }
+  },
+  "codes": [
+    {
+      "code": "8322",
+      "type": "NCO",
+      "label": "Auto-rickshaw / taxi driver",
+      "synonyms": ["auto driver", "auto", "rickshaw driver", "ஆட்டோ ஓட்டுநர்", "ऑटो चालक"]
+    },
+    {
+      "code": "6111",
+      "type": "NCO",
+      "label": "Field crop / vegetable grower",
+      "synonyms": ["farmer", "किसान", "விவசாயி", "gehu ki kheti"]
+    },
+    {
+      "code": "2511",
+      "type": "NCO",
+      "label": "Software developer",
+      "synonyms": ["software dev", "programmer", "coder"]
+    },
+    {
+      "code": "01111",
+      "type": "NIC",
+      "label": "Growing of wheat",
+      "synonyms": ["wheat", "gehu", "गेहूं की खेती"],
+      "externalSource": "MoSPI NIC"
+    },
+    {
+      "code": "49224",
+      "type": "NIC",
+      "label": "Operating a taxi service for passengers",
+      "synonyms": ["uber driver", "taxi service", "cab"],
+      "externalSource": "MoSPI NIC"
+    }
+  ],
+  "referenceDistributions": {
+    "income": { "p05": 6000, "median": 22000, "p95": 80000 },
+    "responseTimeSeconds": { "median": 90 }
+  },
+  "trustWeights": {
+    "validation": 0.4,
+    "fraud": 0.3,
+    "evidence": 0.15,
+    "behaviour": 0.15
+  },
+  "personas": {
+    "genuine": {
+      "enumeratorId": "ENUM-A",
+      "speedSeconds": [80, 70, 65, 90, 75],
+      "answers": {
+        "age": "34",
+        "occupation": "Salaried",
+        "employer": "Private",
+        "income": "25000",
+        "household": "4"
+      },
+      "expectedConfidence": 96,
+      "expectedTrust": "Green"
+    },
+    "suspicious": {
+      "enumeratorId": "ENUM-B",
+      "speedSeconds": [4, 3, 4, 4, 3],
+      "answers": {
+        "age": "34",
+        "occupation": "Unemployed",
+        "unemp_dur": "3",
+        "income": "200000",
+        "household": "4"
+      },
+      "expectedConfidence": 46,
+      "expectedTrust": "Red",
+      "expectedFlags": [
+        {
+          "layer": "Cross-field",
+          "status": "fail",
+          "reason": "Income ₹2,00,000 contradicts status 'Unemployed'"
+        },
+        {
+          "layer": "Behaviour",
+          "status": "fail",
+          "reason": "Answered in 4s vs ~90s median"
+        },
+        {
+          "layer": "Context",
+          "status": "warn",
+          "reason": "₹2,00,000 outside regional range ₹6,000-₹80,000"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --satark-font-scale: 1;
+}
+
+html {
+  font-family: "Noto Sans", "Noto Sans Devanagari", "Noto Sans Tamil", Arial, sans-serif;
+  font-size: calc(16px * var(--satark-font-scale));
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f7f8fa;
+  overflow-x: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+::selection {
+  background: #0f6e56;
+  color: white;
+}

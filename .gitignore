@@ -16,9 +16,6 @@ venv/
 .venv/
 ENV/
 
-# Virtual environments
-satark-ai/services/citizen-portal/backend/venv/
-
 # Database files
 *.db
 *.sqlite
@@ -39,10 +36,13 @@ yarn-error.log*
 # React build output
 /build
 /dist
+apps/web/build/
 
 # Logs
 *.log
 logs/
+.runtime-logs/
+apps/**/.runtime-logs/
 
 # OS
 .DS_Store
