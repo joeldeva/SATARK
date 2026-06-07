@@ -1,0 +1,14 @@
+.git
+.vercel
+.runtime-logs
+docs
+scripts
+apps/api
+apps/web/node_modules
+apps/web/dist
+apps/web/.vercel
+*.db
+*.sqlite
+*.sqlite3
+__pycache__
+*.pyc

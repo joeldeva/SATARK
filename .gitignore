@@ -26,6 +26,7 @@ ENV/
 .env.local
 .env.*.local
 !.env.example
+.vercel/
 
 # Node modules
 node_modules/
@@ -37,6 +38,7 @@ yarn-error.log*
 /build
 /dist
 apps/web/build/
+apps/web/dist/
 
 # Logs
 *.log
@@ -68,3 +70,4 @@ htmlcov/
 
 # Kiro internal
 .kiro/
+.vercel
