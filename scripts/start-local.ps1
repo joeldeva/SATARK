@@ -4,14 +4,15 @@ $root = Split-Path -Parent $PSScriptRoot
 $api = Join-Path $root "apps/api"
 $web = Join-Path $root "apps/web"
 
+$model = "gemma2:2b"
 $modelList = & ollama list 2>$null
-if ($LASTEXITCODE -ne 0 -or ($modelList -notmatch "llama3\.2:3b")) {
-    Write-Host "Pulling local LLM model llama3.2:3b..."
-    & ollama pull llama3.2:3b
+if ($LASTEXITCODE -ne 0 -or ($modelList -notmatch [regex]::Escape($model))) {
+    Write-Host "Pulling local LLM model $model..."
+    & ollama pull $model
 }
 
 $env:LLM_PROVIDER = "ollama"
-$env:LLM_MODEL = "llama3.2:3b"
+$env:LLM_MODEL = $model
 $env:OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 $env:LLM_REQUIRED = "true"
 

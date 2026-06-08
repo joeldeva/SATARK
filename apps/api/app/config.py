@@ -30,10 +30,12 @@ class Settings(BaseSettings):
     )
 
     LLM_PROVIDER: str = "ollama"
-    LLM_MODEL: str = "llama3.2:3b"
+    LLM_MODEL: str = "gemma2:2b"
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
     LLM_REQUIRED: bool = True
     LLM_TIMEOUT_SECONDS: int = 45
+    CHROMA_URL: str = "http://127.0.0.1:8002"
+    CHROMA_DIR: str = str(PROJECT_ROOT / "data" / "chroma")
 
     REDIS_URL: str = "redis://localhost:6379/0"
     TRUST_WEIGHT_VALIDATION: float = 0.40
@@ -78,6 +80,10 @@ class Settings(BaseSettings):
             "evidence": self.TRUST_WEIGHT_EVIDENCE,
             "behaviour": self.TRUST_WEIGHT_BEHAVIOUR,
         }
+
+    @property
+    def gemma_model(self) -> str:
+        return self.LLM_MODEL
 
 
 settings = Settings()

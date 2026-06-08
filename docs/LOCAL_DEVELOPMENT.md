@@ -4,10 +4,10 @@
 
 - Python 3.10+
 - Node.js 20+
-- Ollama with `llama3.2:3b`
+- Ollama with `gemma2:2b`
 
 ```powershell
-ollama pull llama3.2:3b
+ollama pull gemma2:2b
 ```
 
 ## Backend

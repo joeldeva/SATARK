@@ -9,7 +9,7 @@ SATARK has one active backend, one active frontend, and shared data resources.
 - `/api` role-based demo auth
 - `/api` survey, question bank, code library, enumerator, analytics, coding, consent, prepopulate, intelligence, export, and response endpoints
 - `/api/v1` compatibility routes for the earlier generator endpoints
-- local Ollama LLM planning with `llama3.2:3b`
+- local Ollama Gemma assist planning with `gemma2:2b`
 - SQLite-backed survey, generation log, and response persistence
 - deterministic parser available only when `LLM_PROVIDER=none`
 - keyword retrieval from trusted local question sources
@@ -45,7 +45,7 @@ User prompt -> LocalLLMPlanner -> ParsedIntent + draft questions -> RAGEngine ->
 Default config:
 
 - `LLM_PROVIDER=ollama`
-- `LLM_MODEL=llama3.2:3b`
+- `LLM_MODEL=gemma2:2b`
 - `OLLAMA_BASE_URL=http://127.0.0.1:11434`
 - `LLM_REQUIRED=true`
 

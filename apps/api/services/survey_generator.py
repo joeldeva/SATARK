@@ -112,6 +112,12 @@ class SurveyGenerator:
                     "confidence": intent.planner_confidence,
                     "reason": intent.planner_reason,
                 },
+                "assist": {
+                    "needs_review": True,
+                    "is_verdict": False,
+                    "model": intent.planner_model,
+                    "role": "survey_generation_draft",
+                },
                 "question_count": len(questions),
                 "standards_compliance": {"gsbpm": True, "nss": True},
                 "engine_trace": [
