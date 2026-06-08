@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = 45
 
     REDIS_URL: str = "redis://localhost:6379/0"
+    TRUST_WEIGHT_VALIDATION: float = 0.40
+    TRUST_WEIGHT_FRAUD: float = 0.30
+    TRUST_WEIGHT_EVIDENCE: float = 0.15
+    TRUST_WEIGHT_BEHAVIOUR: float = 0.15
+    CONF_THRESHOLD: int = 70
 
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_AUTH_TOKEN: Optional[str] = None
@@ -64,6 +69,15 @@ class Settings(BaseSettings):
         if not self.DATABASE_URL.startswith("sqlite:///"):
             return None
         return Path(self.DATABASE_URL.replace("sqlite:///", "", 1))
+
+    @property
+    def trust_weights(self) -> dict[str, float]:
+        return {
+            "validation": self.TRUST_WEIGHT_VALIDATION,
+            "fraud": self.TRUST_WEIGHT_FRAUD,
+            "evidence": self.TRUST_WEIGHT_EVIDENCE,
+            "behaviour": self.TRUST_WEIGHT_BEHAVIOUR,
+        }
 
 
 settings = Settings()

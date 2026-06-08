@@ -597,6 +597,16 @@ def _evaluate_intelligence(
     speed_mode: str,
     elapsed_seconds: float,
 ):
+    from services.intelligence_adapter import evaluate_intelligence_contract
+
+    return evaluate_intelligence_contract(
+        answers=answers,
+        active_question_id=active_question_id,
+        persona=persona,
+        speed_mode=speed_mode,
+        elapsed_seconds=elapsed_seconds,
+    )
+
     income = float(answers.get("income") or 0)
     occupation = answers.get("occupation")
     ref = _seed()["referenceDistributions"]
