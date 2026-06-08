@@ -28,5 +28,6 @@ def get_db():
 
 def init_db():
     import models.survey  # noqa: F401
+    import models.platform  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

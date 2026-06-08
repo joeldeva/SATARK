@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: satark-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: satark
+      POSTGRES_PASSWORD: satark
+      POSTGRES_DB: satark
+    ports:
+      - "5432:5432"
+    volumes:
+      - satark_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U satark -d satark"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: satark-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - satark_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: satark-chroma
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    volumes:
+      - satark_chroma:/chroma/chroma
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+
+volumes:
+  satark_pgdata:
+  satark_redis:
+  satark_chroma:

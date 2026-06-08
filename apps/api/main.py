@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from api.routes import router, set_db_dependency, set_generator
 from app.config import settings
-from app.database import get_db, init_db
+from app.database import SessionLocal, get_db, init_db
+from app.seed import seed_core_data
 from services.prompt_parser import PromptParser
 from services.rag_engine import RAGEngine
 from services.rule_engine import RuleEngine
@@ -45,6 +46,11 @@ app.include_router(router, prefix="/api/v1")
 async def startup():
     logger.info("Starting SATARK")
     init_db()
+    db = SessionLocal()
+    try:
+        seed_core_data(db, settings.PROJECT_ROOT)
+    finally:
+        db.close()
 
     kb = KnowledgeBaseLoader(base_path=settings.KNOWLEDGE_BASE_PATH).load_all()
     prompt_parser = PromptParser()
