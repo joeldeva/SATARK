@@ -13,7 +13,7 @@ Survey generation uses a private local Gemma assist planner by default:
 
 ```text
 apps/
-  api/    FastAPI backend, SQLite persistence, SATARK API contract
+  api/    FastAPI backend, Postgres-first persistence, SATARK API contract
   web/    React 18 + TypeScript + Tailwind PWA
 data/
   demo_seed.json   demo users, enumerators, survey, codes, personas, trust rules
@@ -25,6 +25,12 @@ docs/
 ```
 
 ## Run Locally
+
+Infra:
+
+```powershell
+docker compose up -d postgres redis chroma
+```
 
 Backend:
 
@@ -45,6 +51,8 @@ $env:PORT="3001"; npm run dev -- --port 3001
 Open http://localhost:3001.
 
 API docs are available at http://localhost:8001/docs.
+
+For a deployed demo, Vercel should host only the frontend/proxy. The selected demo machine or VM must run FastAPI, Postgres, Redis, Chroma, Ollama, and `gemma2:2b`.
 
 ## Demo Login
 

@@ -4,6 +4,7 @@
 
 - Python 3.10+
 - Node.js 20+
+- Docker Desktop for Postgres, Redis, and Chroma
 - Ollama with `gemma2:2b`
 
 ```powershell
@@ -12,9 +13,16 @@ ollama pull gemma2:2b
 
 ## Backend
 
+Start local infrastructure:
+
+```powershell
+docker compose up -d postgres redis chroma
+```
+
 ```powershell
 cd apps/api
 python -m pip install -r requirements.txt
+python -m alembic upgrade head
 python -m uvicorn main:app --host 127.0.0.1 --port 8001
 ```
 
@@ -55,3 +63,7 @@ npm run typecheck
 npm audit --audit-level=low
 npm run build
 ```
+
+## Demo Runtime
+
+Vercel is only the frontend/proxy path. The final demo must run FastAPI, Postgres, Redis, Chroma, Ollama, and `gemma2:2b` on one chosen local machine or VM, and that same machine should be rehearsed before presentation.

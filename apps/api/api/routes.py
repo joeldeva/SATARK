@@ -290,12 +290,24 @@ async def coding_review(request: Dict[str, Any]):
 
 @router.get("/enumerators")
 async def enumerators():
-    return {"enumerators": _seed()["enumerators"]}
+    from services.dashboard_data import enumerators_payload
+
+    db = _open_db()
+    try:
+        return {"enumerators": enumerators_payload(db, _seed())}
+    finally:
+        db.close()
 
 
 @router.get("/enumerators/{enumerator_id}")
 async def enumerator(enumerator_id: str):
-    item = next((row for row in _seed()["enumerators"] if row["id"] == enumerator_id), None)
+    from services.dashboard_data import enumerator_payload
+
+    db = _open_db()
+    try:
+        item = enumerator_payload(db, _seed(), enumerator_id)
+    finally:
+        db.close()
     if not item:
         raise HTTPException(status_code=404, detail="Enumerator not found")
     return {"enumerator": item}
@@ -308,7 +320,13 @@ async def actions(request: Dict[str, Any]):
 
 @router.get("/analytics")
 async def analytics():
-    return _analytics_snapshot()
+    from services.dashboard_data import analytics_snapshot
+
+    db = _open_db()
+    try:
+        return analytics_snapshot(db, _analytics_snapshot(), _seed())
+    finally:
+        db.close()
 
 
 @router.get("/analytics/summary")
