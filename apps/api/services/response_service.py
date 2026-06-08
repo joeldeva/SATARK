@@ -11,10 +11,16 @@ from models.platform import (
     ValidationResult,
     ValidationRuleRecord,
 )
+from services.events import publish_intelligence_events
 from services.intelligence_adapter import DEFAULT_REFERENCE, DEFAULT_RULES, evaluate_intelligence_contract
 
 
-def store_collection_response(db, payload: dict[str, Any], seed_survey: dict[str, Any]) -> dict[str, Any]:
+def store_collection_response(
+    db,
+    payload: dict[str, Any],
+    seed_survey: dict[str, Any],
+    event_publisher=publish_intelligence_events,
+) -> dict[str, Any]:
     survey_id = payload.get("surveyId") or seed_survey["id"]
     answers = payload.get("answers") or {}
     enumerator_id = payload.get("enumeratorId")
@@ -84,12 +90,23 @@ def store_collection_response(db, payload: dict[str, Any], seed_survey: dict[str
     _apply_enumerator_update(db, enumerator_id, intelligence.get("enumerator_update"))
     db.commit()
 
+    event_payload = {
+        "response_id": str(response.id),
+        "enumerator_id": enumerator_id,
+        "confidence": intelligence["confidence"],
+        "risk_level": trust_level,
+        "reasons": native_trust.get("reasons", [])[:3],
+    }
+    published_events = event_publisher(intelligence.get("events", []), event_payload)
+
     return {
         "queued": False,
         "responseId": str(response.id),
         "qualityScore": intelligence["confidence"],
         "trustLevel": trust_level,
         "status": status,
+        "events": intelligence.get("events", []),
+        "publishedEvents": published_events,
         "intelligence": intelligence,
     }
 
