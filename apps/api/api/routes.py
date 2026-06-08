@@ -193,32 +193,12 @@ async def intelligence_answer(request: Dict[str, Any]):
 
 @router.post("/responses")
 async def submit_collection_response(request: Dict[str, Any]):
-    from models.survey import SurveyResponse
+    from services.response_service import store_collection_response
 
     db = _open_db()
     try:
         _ensure_seed_survey(db)
-        intelligence = request.get("intelligence") or {}
-        answers = request.get("answers") or {}
-        validation_flags = [
-            layer for layer in intelligence.get("layers", []) if layer.get("status") in {"warn", "fail"}
-        ]
-        response = SurveyResponse(
-            survey_id=request.get("surveyId") or _seed_survey()["id"],
-            respondent_id=request.get("householdId"),
-            responses=answers,
-            channel="collection-client",
-            duration_seconds=request.get("durationSeconds"),
-            quality_score=int(intelligence.get("confidence") or 0),
-            state=_seed()["households"][0]["prepop"]["state"],
-            district=_seed()["households"][0]["prepop"]["district"],
-            agent_id=request.get("enumeratorId"),
-            is_validated=not any(flag.get("status") == "fail" for flag in validation_flags),
-            validation_flags=validation_flags,
-        )
-        db.add(response)
-        db.commit()
-        return {"queued": False, "responseId": response.id, "qualityScore": response.quality_score}
+        return store_collection_response(db, request, _seed_survey())
     finally:
         db.close()
 
@@ -272,38 +252,27 @@ async def submit_response(survey_id: str, request: Dict[str, Any]):
 
 @router.get("/responses")
 async def responses(status: str | None = Query(default=None)):
-    from models.survey import SurveyResponse
+    from services.response_service import flagged_responses
 
     db = _open_db()
     try:
-        rows = db.query(SurveyResponse).order_by(SurveyResponse.submitted_at.desc()).limit(100).all()
-        response_items = [_response_to_flag(row) for row in rows if row.validation_flags]
-        seed_flags = _seed_flags()
-        combined = response_items + seed_flags
         if status == "flagged":
-            return {"responses": combined}
-        return {"responses": combined}
+            return {"responses": flagged_responses(db, _seed_flags(), _seed_survey())}
+        return {"responses": flagged_responses(db, _seed_flags(), _seed_survey())}
     finally:
         db.close()
 
 
 @router.get("/responses/{response_id}")
 async def response_detail(response_id: str):
-    from models.survey import SurveyResponse
+    from services.response_service import response_detail as load_response_detail
 
     db = _open_db()
     try:
-        row = db.query(SurveyResponse).filter(SurveyResponse.id == response_id).first()
-        if not row:
+        detail = load_response_detail(db, response_id)
+        if not detail:
             raise HTTPException(status_code=404, detail="Response not found")
-        return {
-            "id": row.id,
-            "surveyId": row.survey_id,
-            "respondentId": row.respondent_id,
-            "answers": row.responses,
-            "qualityScore": row.quality_score,
-            "validationFlags": row.validation_flags,
-        }
+        return detail
     finally:
         db.close()
 

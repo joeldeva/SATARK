@@ -107,6 +107,7 @@ def evaluate_intelligence_contract(
         "fraud_signals": trust.get("fraud_signals", []),
         "events": result.events,
         "adaptive": result.adaptive,
+        "enumerator_update": result.enumerator_update,
         "native_trust": trust,
     }
 
