@@ -22,9 +22,9 @@ export function getQuestionText(question: SurveyQuestion | { q?: Partial<Record<
   return question.q?.[language] || question.q?.en || 'Question';
 }
 
-export function getOrderedQuestions(occupation?: string) {
-  const questions = seedData.survey.nodes.filter((node) => node.type !== 'adaptive');
-  const branch = occupation ? seedData.survey.branches[occupation] : undefined;
+export function getOrderedQuestions(occupation?: string, survey = seedData.survey) {
+  const questions = survey.nodes.filter((node) => node.type !== 'adaptive');
+  const branch = occupation ? survey.branches[occupation] : undefined;
   if (!branch) return questions;
   const branchQuestion: SurveyQuestion = {
     id: branch.id,

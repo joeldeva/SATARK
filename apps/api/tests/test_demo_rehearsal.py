@@ -32,3 +32,22 @@ def test_suspicious_response_lands_red_below_50_with_reasons():
     assert result["confidence"] < 50
     assert "contradicts" in reasons
     assert "median" in reasons or "pace" in reasons
+
+
+def test_minimal_suspicious_response_lands_red_below_50():
+    result = evaluate_intelligence_contract(
+        answers={
+            "occupation": "Unemployed",
+            "income": "200000",
+            "age": "34",
+            "household": "4",
+        },
+        speed_mode="too-fast",
+        elapsed_seconds=4,
+    )
+
+    reasons = " ".join(result["native_trust"]["reasons"]).lower()
+    assert result["trustLevel"] == "Red"
+    assert result["confidence"] < 50
+    assert "contradicts" in reasons
+    assert "median" in reasons or "pace" in reasons

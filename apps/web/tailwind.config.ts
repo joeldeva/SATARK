@@ -17,7 +17,7 @@ export default {
         }
       },
       fontFamily: {
-        sans: ['"Noto Sans"', '"Noto Sans Devanagari"', '"Noto Sans Tamil"', 'Arial', 'sans-serif']
+        sans: ['system-ui', '-apple-system', '"Segoe UI"', '"Nirmala UI"', 'Arial', 'sans-serif']
       },
       boxShadow: {
         card: '0 1px 2px rgba(16, 24, 40, 0.08)'

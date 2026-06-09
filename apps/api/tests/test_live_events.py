@@ -59,11 +59,23 @@ def test_live_events_streams_redis_flags(monkeypatch):
         assert event["risk_level"] == "Red"
 
 
+def test_dashboard_live_alias_streams_redis_flags(monkeypatch):
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    monkeypatch.setattr("api.event_routes._redis_client", lambda: FakeRedis())
+
+    token = encode_token({"sub": "scd", "role": "scd", "name": "Coordination Officer"}, settings.SECRET_KEY)
+    client = TestClient(app)
+    with client.websocket_connect(f"/api/dashboard/live?token={token}&event=flag.created") as ws:
+        assert ws.receive_json()["event"] == "connected"
+        assert ws.receive_json()["event"] == "flag.created"
+
+
 def test_live_events_rejects_non_dashboard_token():
     app = FastAPI()
     app.include_router(router, prefix="/api")
 
-    token = encode_token({"sub": "sdrd", "role": "sdrd", "name": "Design Officer"}, settings.SECRET_KEY)
+    token = encode_token({"sub": "guest", "role": "guest", "name": "Guest"}, settings.SECRET_KEY)
     client = TestClient(app)
     with pytest.raises(WebSocketDisconnect) as info:
         with client.websocket_connect(f"/api/events/live?token={token}"):

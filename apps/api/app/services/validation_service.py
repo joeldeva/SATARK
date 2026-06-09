@@ -42,6 +42,79 @@ def create_validation_rule(db: Session, payload: Dict[str, Any]) -> Dict[str, An
     return _rule_to_dict(row)
 
 
+def ensure_default_validation_rules(db: Session, survey_id: str, question_graph: Dict[str, Any] | None) -> List[Dict[str, Any]]:
+    existing = db.query(ValidationRuleRecord).filter(ValidationRuleRecord.survey_id == survey_id).count()
+    if existing:
+        return []
+
+    graph = question_graph or {}
+    nodes = graph.get("nodes") if isinstance(graph, dict) else []
+    fields = {str(node.get("id")) for node in nodes or [] if node.get("id") and node.get("type") != "adaptive"}
+    created: list[ValidationRuleRecord] = []
+
+    for node in nodes or []:
+        field = str(node.get("id") or "")
+        if not field or node.get("type") == "adaptive":
+            continue
+        created.append(
+            ValidationRuleRecord(
+                survey_id=survey_id,
+                field=field,
+                rule_type="required",
+                params={"field": field},
+                severity="error",
+                reason_template=f"{field} is required",
+            )
+        )
+        range_rule = (node.get("rules") or {}).get("range")
+        if node.get("type") == "number" and isinstance(range_rule, list) and len(range_rule) == 2:
+            created.append(
+                ValidationRuleRecord(
+                    survey_id=survey_id,
+                    field=field,
+                    rule_type="range",
+                    params={"field": field, "min": range_rule[0], "max": range_rule[1]},
+                    severity="error",
+                    reason_template=f"{field} must be inside the configured range",
+                )
+            )
+
+    if {"occupation", "income"}.issubset(fields):
+        created.append(
+            ValidationRuleRecord(
+                survey_id=survey_id,
+                field="income",
+                rule_type="cross_field",
+                params={
+                    "if_field": "occupation",
+                    "if_op": "eq",
+                    "if_value": "Unemployed",
+                    "then_field": "income",
+                    "then_op": "lte",
+                    "then_value": 50000,
+                },
+                severity="error",
+                reason_template="Income cannot contradict unemployed status",
+            )
+        )
+    if "income" in fields:
+        created.append(
+            ValidationRuleRecord(
+                survey_id=survey_id,
+                field="income",
+                rule_type="context",
+                params={"field": "income", "ref_key": "income"},
+                severity="warning",
+                reason_template="Income should be inside the regional reference band",
+            )
+        )
+
+    for row in created:
+        db.add(row)
+    db.commit()
+    return [_rule_to_dict(row) for row in created]
+
+
 def update_validation_rule(db: Session, rule_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     row = db.query(ValidationRuleRecord).filter(ValidationRuleRecord.id == rule_id).first()
     if not row:

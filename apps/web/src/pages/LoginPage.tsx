@@ -3,12 +3,19 @@ import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { LockKeyhole, ShieldCheck } from 'lucide-react';
-import { seedData } from '../data/seed';
 import { login } from '../lib/apiClient';
 import { cn } from '../lib/format';
 import { useAppStore, workspaceHome } from '../store/appStore';
 import { LanguageSwitcher } from '../components/ui';
-import type { User } from '../types';
+import type { Role } from '../types';
+
+const roleShortcuts: Array<{ username: string; password: string; role: Role }> = [
+  { username: 'admin', password: 'admin123', role: 'admin' },
+  { username: 'sdrd', password: 'design123', role: 'sdrd' },
+  { username: 'fod', password: 'field123', role: 'fod' },
+  { username: 'dpd', password: 'process123', role: 'dpd' },
+  { username: 'scd', password: 'coord123', role: 'scd' }
+];
 
 export function LoginPage() {
   const { t } = useTranslation();
@@ -22,8 +29,7 @@ export function LoginPage() {
   const mutation = useMutation({
     mutationFn: () => login(username, password),
     onSuccess: ({ data }) => {
-      const fullUser = seedData.users.find((item) => item.username === data.user.username);
-      loginStore(fullUser || ({ ...data.user, password: '' } as User));
+      loginStore(data.user, data.token ?? null);
       navigate(workspaceHome[data.user.role], { replace: true });
     },
     onError: () => setMessage('Invalid username or password')
@@ -39,7 +45,7 @@ export function LoginPage() {
     mutation.mutate();
   }
 
-  function prefill(user: User) {
+  function prefill(user: (typeof roleShortcuts)[number]) {
     setUsername(user.username);
     setPassword(user.password);
     setMessage('');
@@ -99,8 +105,8 @@ export function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-5 flex flex-wrap gap-2" aria-label="Demo roles">
-          {seedData.users.map((user) => (
+        <div className="mt-5 flex flex-wrap gap-2" aria-label="Role shortcuts">
+          {roleShortcuts.map((user) => (
             <button
               type="button"
               key={user.username}
@@ -116,7 +122,7 @@ export function LoginPage() {
         </div>
 
         <p className="mt-6 border-t border-slate-100 pt-4 text-center text-xs text-slate-500">
-          Secure · Consent-first · Built on India's Digital Public Infrastructure
+          Secure - consent-first - built on India's Digital Public Infrastructure
         </p>
       </section>
     </main>

@@ -113,6 +113,11 @@ class TrustEngine:
             + self.w["behaviour"] * behaviour_score
         )
 
+        content_errors = [c for c in errors if c.layer != "behaviour"]
+        hard_speeding = any(signal.get("type") == "speeding" for signal in behaviour.fraud_signals)
+        if content_errors and hard_speeding:
+            confidence = min(confidence, 46.0)
+
         risk = ("Green" if confidence >= GREEN_THRESHOLD else
                 "Amber" if confidence >= AMBER_THRESHOLD else "Red")
         rec  = ("accept"       if risk == "Green" else

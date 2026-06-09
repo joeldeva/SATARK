@@ -27,6 +27,7 @@ def _redis_client():
         raise RedisPublishError(f"Redis is unreachable at {settings.REDIS_URL}: {exc}") from exc
 
 
+@router.websocket("/dashboard/live")
 @router.websocket("/events/live")
 async def live_events(websocket: WebSocket):
     token = websocket.query_params.get("token", "")

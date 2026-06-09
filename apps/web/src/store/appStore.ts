@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Enumerator, Language, LiveFlag, Role, TrustLevel, User } from '../types';
-import { seedData } from '../data/seed';
 
 interface AppState {
   currentUser: Omit<User, 'password'> | null;
+  token: string | null;
   language: Language;
   colorBlind: boolean;
   fontScale: number;
@@ -12,7 +12,7 @@ interface AppState {
   queuedCount: number;
   liveFlags: LiveFlag[];
   enumerators: Enumerator[];
-  login: (user: User) => void;
+  login: (user: Omit<User, 'password'>, token?: string | null) => void;
   logout: () => void;
   setLanguage: (language: Language) => void;
   toggleColorBlind: () => void;
@@ -21,42 +21,31 @@ interface AppState {
   setQueuedCount: (count: number) => void;
   addLiveFlag: (flag: LiveFlag) => void;
   updateEnumeratorTrust: (id: string, score: number, level: TrustLevel) => void;
-  resetDemo: () => void;
+  resetLocalState: () => void;
 }
-
-const initialFlags: LiveFlag[] = [
-  {
-    id: 'flag-seed-1',
-    enumeratorId: 'ENUM-B',
-    enumeratorName: 'Suspect Enumerator',
-    survey: seedData.survey.title.en,
-    reason: "Income ₹2,00,000 contradicts status 'Unemployed'",
-    trustScore: 40,
-    trustLevel: 'Red',
-    timestamp: new Date(Date.now() - 1000 * 60 * 4).toISOString()
-  }
-];
 
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       currentUser: null,
+      token: null,
       language: 'en',
       colorBlind: false,
       fontScale: 1,
       simulatedOffline: false,
       queuedCount: 0,
-      liveFlags: initialFlags,
-      enumerators: seedData.enumerators,
-      login: (user) =>
+      liveFlags: [],
+      enumerators: [],
+      login: (user, token = null) =>
         set({
           currentUser: {
             username: user.username,
             role: user.role,
             name: user.name
-          }
+          },
+          token
         }),
-      logout: () => set({ currentUser: null }),
+      logout: () => set({ currentUser: null, token: null }),
       setLanguage: (language) => set({ language }),
       toggleColorBlind: () => set((state) => ({ colorBlind: !state.colorBlind })),
       setFontScale: (fontScale) => set({ fontScale: Math.min(1.18, Math.max(0.9, fontScale)) }),
@@ -79,12 +68,13 @@ export const useAppStore = create<AppState>()(
               : enumerator
           )
         })),
-      resetDemo: () => set({ liveFlags: initialFlags, enumerators: seedData.enumerators, queuedCount: 0 })
+      resetLocalState: () => set({ liveFlags: [], enumerators: [], queuedCount: 0 })
     }),
     {
       name: 'satark-session',
       partialize: (state) => ({
         currentUser: state.currentUser,
+        token: state.token,
         language: state.language,
         colorBlind: state.colorBlind,
         fontScale: state.fontScale,

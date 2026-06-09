@@ -7,6 +7,7 @@ Create Date: 2026-06-09
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
 
@@ -19,10 +20,26 @@ JSONB = postgresql.JSONB
 
 
 def upgrade() -> None:
-    op.drop_index("ix_survey_responses_district", table_name="survey_responses")
-    op.drop_index("ix_survey_responses_state", table_name="survey_responses")
-    op.drop_index("ix_survey_responses_agent_id", table_name="survey_responses")
-    op.drop_index("ix_survey_responses_survey_id", table_name="survey_responses")
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.alter_column(
+            "alembic_version",
+            "version_num",
+            type_=sa.String(64),
+            existing_type=sa.String(32),
+        )
+    inspector = inspect(op.get_bind())
+    if "survey_responses" not in inspector.get_table_names():
+        return
+    index_names = {item["name"] for item in inspector.get_indexes("survey_responses")}
+    for index_name in (
+        "ix_survey_responses_district",
+        "ix_survey_responses_state",
+        "ix_survey_responses_agent_id",
+        "ix_survey_responses_survey_id",
+    ):
+        if index_name in index_names:
+            op.drop_index(index_name, table_name="survey_responses")
     op.drop_table("survey_responses")
 
 

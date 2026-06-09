@@ -1,0 +1,16 @@
+.git
+.vercel
+.runtime-logs
+
+apps/web/node_modules
+apps/web/dist
+apps/web/.vite
+
+apps/api/.pytest_cache
+apps/api/**/__pycache__
+apps/api/**/*.pyc
+apps/api/.env
+
+data/chroma
+*.log
+*.tmp

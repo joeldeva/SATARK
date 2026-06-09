@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MessageSquare, Send, UserPlus } from 'lucide-react';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Card, DataTable, SectionHeader, Sparkline, TrustBadge } from '../components/ui';
-import { getEnumerators } from '../lib/apiClient';
+import { createAssignment, getAssignments, getEnumerators, getHouseholds } from '../lib/apiClient';
+import { useLiveEvents } from '../lib/useLiveEvents';
 import { useAppStore } from '../store/appStore';
-import type { Enumerator } from '../types';
+import type { Assignment, Enumerator, Household } from '../types';
 
 export function FodWorkspace() {
   const storeEnumerators = useAppStore((state) => state.enumerators);
@@ -14,15 +15,42 @@ export function FodWorkspace() {
   const enumerators = query.data?.data.enumerators || storeEnumerators;
   const [selectedId, setSelectedId] = useState(enumerators[0]?.id || 'ENUM-A');
   const selected = enumerators.find((item) => item.id === selectedId) || enumerators[0];
+  const { events, connected } = useLiveEvents();
 
   const trendData = useMemo(
-    () => selected.trustTrend.map((value, index) => ({ day: `D-${selected.trustTrend.length - index - 1}`, trust: value })),
-    [selected.trustTrend]
+    () => (selected?.trustTrend || []).map((value, index) => ({ day: `D-${(selected?.trustTrend || []).length - index - 1}`, trust: value })),
+    [selected?.trustTrend]
   );
+
+  if (!selected) {
+    return <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600">Loading field operations...</div>;
+  }
 
   return (
     <div className="space-y-6">
-      <SectionHeader title="Collection operations" eyebrow="FOD workspace" />
+      <SectionHeader
+        title="Collection operations"
+        eyebrow="FOD workspace"
+        actions={
+          <span className={`rounded-full px-2 py-1 text-xs font-semibold ${connected ? 'bg-green-100 text-gov-green' : 'bg-slate-100 text-slate-600'}`}>
+            {connected ? 'Live - WebSocket connected' : 'Reconnecting - polling flags'}
+          </span>
+        }
+      />
+
+      {events.length > 0 ? (
+        <Card>
+          <SectionHeader title="Live events" eyebrow={`${events.length} recent - Redis pub/sub`} />
+          <ul className="divide-y divide-slate-100 text-sm">
+            {events.slice(0, 5).map((ev, idx) => (
+              <li key={idx} className="flex items-center justify-between px-2 py-1.5">
+                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-gov-primary">{String(ev.event || 'event')}</span>
+                <span className="truncate text-xs text-slate-500">{JSON.stringify(ev).slice(0, 120)}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-[1.25fr_0.9fr]">
         <Card>
@@ -115,22 +143,40 @@ export function FodWorkspace() {
         </Card>
       </div>
 
-      <Assignments enumerators={enumerators} />
+      <Assignments enumerators={enumerators} selectedEnumeratorId={selected.id} />
     </div>
   );
 }
 
-function Assignments({ enumerators }: { enumerators: Enumerator[] }) {
-  const rows = enumerators.flatMap((enumerator) => [
-    { id: `${enumerator.id}-1`, enumerator: enumerator.name, district: 'Chennai', survey: 'Household Employment Survey', status: enumerator.trustLevel === 'Red' ? 'Review' : 'On track' },
-    { id: `${enumerator.id}-2`, enumerator: enumerator.name, district: 'Kancheepuram', survey: 'Labour supplement', status: 'Pending sync' }
-  ]);
+function Assignments({ enumerators, selectedEnumeratorId }: { enumerators: Enumerator[]; selectedEnumeratorId: string }) {
+  const queryClient = useQueryClient();
+  const [surveyId, setSurveyId] = useState('emp-2026');
+  const [enumeratorId, setEnumeratorId] = useState(selectedEnumeratorId);
+  const [householdId, setHouseholdId] = useState('');
+  const assignmentQuery = useQuery({ queryKey: ['assignments'], queryFn: () => getAssignments() });
+  const householdQuery = useQuery({ queryKey: ['households'], queryFn: () => getHouseholds() });
+  const rows = assignmentQuery.data?.data.assignments || [];
+  const households = householdQuery.data?.data.households || [];
+  const selectedEnum = enumeratorId || selectedEnumeratorId;
+  const selectedHousehold = householdId || households[0]?.id || '';
+  const createMutation = useMutation({
+    mutationFn: () =>
+      createAssignment({
+        surveyId,
+        enumeratorId: selectedEnum,
+        householdId: selectedHousehold || undefined
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['assignments'] });
+      queryClient.invalidateQueries({ queryKey: ['enumerators'] });
+    }
+  });
 
   return (
     <Card>
       <SectionHeader
         title="Assignments"
-        eyebrow="Workload"
+        eyebrow="Published survey workload"
         actions={
           <button className="inline-flex items-center gap-2 rounded-lg bg-gov-teal px-3 py-2 text-sm font-semibold text-white" type="button">
             <Send className="h-4 w-4" />
@@ -138,13 +184,62 @@ function Assignments({ enumerators }: { enumerators: Enumerator[] }) {
           </button>
         }
       />
+      <div className="mb-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
+        <label className="text-xs font-semibold uppercase text-slate-500">
+          Survey ID
+          <input
+            value={surveyId}
+            onChange={(event) => setSurveyId(event.target.value)}
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium normal-case text-slate-900 focus:border-gov-teal focus:outline-none focus:ring-2 focus:ring-gov-teal/25"
+          />
+        </label>
+        <label className="text-xs font-semibold uppercase text-slate-500">
+          Enumerator
+          <select
+            value={selectedEnum}
+            onChange={(event) => setEnumeratorId(event.target.value)}
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium normal-case text-slate-900 focus:border-gov-teal focus:outline-none focus:ring-2 focus:ring-gov-teal/25"
+          >
+            {enumerators.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs font-semibold uppercase text-slate-500">
+          Household
+          <select
+            value={selectedHousehold}
+            onChange={(event) => setHouseholdId(event.target.value)}
+            className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium normal-case text-slate-900 focus:border-gov-teal focus:outline-none focus:ring-2 focus:ring-gov-teal/25"
+          >
+            {households.map((item: Household) => (
+              <option key={item.id} value={item.id}>
+                {item.id} - {item.prepop.district}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-gov-primary px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 lg:mt-5"
+          type="button"
+          disabled={!surveyId || !selectedEnum || createMutation.isPending}
+          onClick={() => createMutation.mutate()}
+        >
+          <UserPlus className="h-4 w-4" />
+          {createMutation.isPending ? 'Assigning' : 'Assign'}
+        </button>
+      </div>
+      {createMutation.error ? <p className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-gov-red">{(createMutation.error as Error).message}</p> : null}
       <DataTable
         rows={rows}
         rowKey={(row) => row.id}
+        empty={assignmentQuery.isLoading ? 'Loading assignments...' : 'No assignments have been created yet.'}
         columns={[
-          { key: 'enumerator', header: 'Enumerator', render: (row) => row.enumerator, sortValue: (row) => row.enumerator },
-          { key: 'district', header: 'District', render: (row) => row.district, sortValue: (row) => row.district },
-          { key: 'survey', header: 'Survey', render: (row) => row.survey, sortValue: (row) => row.survey },
+          { key: 'enumerator', header: 'Enumerator', render: (row: Assignment) => row.enumeratorName, sortValue: (row) => row.enumeratorName },
+          { key: 'district', header: 'Household', render: (row) => row.householdId || 'Open', sortValue: (row) => row.householdId || '' },
+          { key: 'survey', header: 'Survey', render: (row) => row.surveyTitle || row.surveyId, sortValue: (row) => row.surveyTitle || row.surveyId },
           { key: 'status', header: 'Status', render: (row) => row.status, sortValue: (row) => row.status }
         ]}
       />

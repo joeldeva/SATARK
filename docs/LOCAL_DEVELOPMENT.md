@@ -16,13 +16,13 @@ ollama pull gemma2:2b
 Start local infrastructure:
 
 ```powershell
+Copy-Item .env.example .env
 docker compose up -d postgres redis chroma
 ```
 
 Or run the complete backend stack in Docker. Ollama still runs on the host with `gemma2:2b`, and the API container reaches it through `host.docker.internal`.
 
 ```powershell
-$env:SATARK_SECRET_KEY="<long-random-secret>"
 docker compose up -d postgres redis chroma api
 ```
 

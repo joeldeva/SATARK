@@ -112,7 +112,7 @@ export interface CodeSuggestion {
   type: string;
   label: string;
   confidence: number;
-  source: 'Local' | 'MoSPI NIC';
+  source: string;
   reason: string;
 }
 
@@ -150,6 +150,70 @@ export interface LiveFlag {
   timestamp: string;
 }
 
+export interface Assignment {
+  id: string;
+  surveyId: string;
+  surveyTitle: string;
+  enumeratorId: string;
+  enumeratorName: string;
+  householdId: string | null;
+  household: Household['prepop'] | null;
+  status: string;
+  createdAt?: string | null;
+  autoCreated?: boolean;
+}
+
+export interface ResponseDetail {
+  id: string;
+  surveyId: string;
+  respondentId: string | null;
+  enumeratorId: string | null;
+  answers: Record<string, string>;
+  prepopulated: Record<string, unknown>;
+  qualityScore: number;
+  trustLevel: TrustLevel;
+  status: string;
+  validationFlags: ValidationLayer[];
+  paradata: {
+    totalSeconds?: number;
+    questionTimings?: Record<string, number>;
+    pauses?: number;
+    correctionCount?: number;
+    backNavCount?: number;
+    gpsLatitude?: number | null;
+    gpsLongitude?: number | null;
+    device?: string | null;
+    mode?: string | null;
+    network?: string | null;
+  } | null;
+  trust: {
+    confidence: number;
+    risk_level: string;
+    breakdown: Record<string, number>;
+    fraud_signals: string[];
+    recommendation: string;
+    reasons: string[];
+  } | null;
+}
+
+export interface CodingReviewItem {
+  id: string;
+  responseId: string | null;
+  field: string;
+  rawText: string;
+  suggestions: CodeSuggestion[];
+  suggested?: CodeSuggestion | null;
+  confidence: number;
+  source: string;
+  needsReview: boolean;
+  approvedCode?: string | null;
+  approvedLabel?: string | null;
+  surveyId?: string | null;
+  enumeratorId?: string | null;
+  status?: string | null;
+  createdAt?: string | null;
+}
+
 export interface AnalyticsSnapshot {
   responsesToday: number;
   flagged: number;
@@ -170,5 +234,5 @@ export interface AnalyticsSnapshot {
 
 export interface ApiResponse<T> {
   data: T;
-  source: 'api' | 'seed';
+  source: 'api' | 'queued';
 }

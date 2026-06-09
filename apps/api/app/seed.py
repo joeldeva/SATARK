@@ -21,8 +21,8 @@ from services.intelligence_adapter import DEFAULT_RULES
 
 PERMISSIONS_BY_ROLE = {
     "admin": ["admin", "survey:read", "survey:write", "collect:write", "coding:review", "validation:review", "dashboard:view"],
-    "sdrd": ["survey:read", "survey:write"],
-    "fod": ["dashboard:view", "collect:write"],
+    "sdrd": ["survey:read", "survey:write", "dashboard:view", "collect:write"],
+    "fod": ["dashboard:view", "collect:write", "survey:read"],
     "dpd": ["coding:review", "validation:review", "dashboard:view"],
     "scd": ["dashboard:view"],
 }
@@ -35,12 +35,15 @@ def seed_core_data(db, project_root: Path) -> None:
 
     _seed_permissions(db)
     _seed_roles(db)
+    db.flush()
     _seed_users(db, seed)
     _seed_field_data(db, seed)
+    db.flush()  # ensure enumerators+households exist before assignments FK them
     _seed_reference_data(db, seed)
     _seed_validation_rules(db, seed)
     _seed_codes(db, seed)
     _seed_survey_graph(db, seed)
+    db.flush()  # ensure surveys row exists before adaptive_logic FKs it
     _seed_adaptive_logic(db, seed)
     _seed_assignments(db, seed)
     db.commit()
@@ -227,22 +230,31 @@ def _seed_assignments(db, seed: dict) -> None:
     survey_id = (seed.get("survey") or {}).get("id")
     if not survey_id:
         return
-    if db.query(Assignment).filter(Assignment.survey_id == survey_id).count():
-        return
     households = seed.get("households", [])
     enumerators = seed.get("enumerators", [])
     if not households or not enumerators:
         return
-    for index, household in enumerate(households):
-        enumerator = enumerators[index % len(enumerators)]
-        db.add(
-            Assignment(
-                survey_id=survey_id,
-                enumerator_id=enumerator["id"],
-                household_id=household["id"],
-                status="assigned",
+    for enumerator in enumerators:
+        for household in households:
+            existing = (
+                db.query(Assignment)
+                .filter(
+                    Assignment.survey_id == survey_id,
+                    Assignment.enumerator_id == enumerator["id"],
+                    Assignment.household_id == household["id"],
+                )
+                .first()
             )
-        )
+            if existing:
+                continue
+            db.add(
+                Assignment(
+                    survey_id=survey_id,
+                    enumerator_id=enumerator["id"],
+                    household_id=household["id"],
+                    status="assigned",
+                )
+            )
 
 
 def _hash_password(password: str) -> str:

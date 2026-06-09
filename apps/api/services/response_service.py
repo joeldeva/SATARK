@@ -5,6 +5,10 @@ from typing import Any
 from fastapi import HTTPException
 
 from models.platform import (
+    Assignment,
+    AuditLog,
+    ClassificationCode,
+    CodingResult,
     EnumeratorProfile,
     Paradata,
     ReferenceDistribution,
@@ -81,20 +85,43 @@ def store_collection_response(
     )
 
     for layer in intelligence["layers"]:
-        if layer["status"] in {"warn", "fail"}:
-            db.add(
-                ValidationResult(
-                    response_id=response.id,
-                    layer=layer["layer"],
-                    field=None,
-                    status=layer["status"],
-                    severity="error" if layer["status"] == "fail" else "warning",
-                    reason=layer["reason"],
-                    recommended_action=native_trust["recommendation"],
-                )
+        status_value = layer["status"]
+        db.add(
+            ValidationResult(
+                response_id=response.id,
+                layer=layer["layer"],
+                field=None,
+                status=status_value,
+                severity="error" if status_value == "fail" else "warning" if status_value == "warn" else "info",
+                reason=layer["reason"],
+                recommended_action=native_trust["recommendation"],
             )
+        )
+
+    for coding_row in _coding_results_for_answers(db, survey, response.id, answers):
+        db.add(coding_row)
 
     _apply_enumerator_update(db, enumerator_id, intelligence.get("enumerator_update"))
+    assignment_id = payload.get("assignmentId") or payload.get("assignment_id")
+    if assignment_id:
+        assignment = db.get(Assignment, assignment_id)
+        if assignment:
+            previous_status = assignment.status
+            assignment.status = "submitted"
+            if previous_status != "submitted" and assignment.enumerator_id:
+                enumerator = db.get(EnumeratorProfile, assignment.enumerator_id)
+                if enumerator:
+                    enumerator.completed = int(enumerator.completed or 0) + 1
+    db.add(
+        AuditLog(
+            actor=enumerator_id or "collection-client",
+            action="response.submitted",
+            entity_type="response",
+            entity_id=str(response.id),
+            payload={"surveyId": survey_id, "assignmentId": assignment_id, "status": status},
+            reason=f"Response submitted with {trust_level} trust level and confidence {intelligence['confidence']}",
+        )
+    )
     db.commit()
 
     event_payload = {
@@ -142,11 +169,19 @@ def response_detail(db, response_id: str) -> dict[str, Any] | None:
         .order_by(ValidationResult.created_at.asc())
         .all()
     )
+    paradata = (
+        db.query(Paradata)
+        .filter(Paradata.response_id == row.id)
+        .order_by(Paradata.created_at.desc())
+        .first()
+    )
     return {
         "id": str(row.id),
         "surveyId": row.survey_id,
         "respondentId": row.household_id,
+        "enumeratorId": row.enumerator_id,
         "answers": row.answers,
+        "prepopulated": row.prepopulated,
         "qualityScore": row.confidence_score,
         "trustLevel": row.trust_level,
         "status": row.status,
@@ -154,6 +189,20 @@ def response_detail(db, response_id: str) -> dict[str, Any] | None:
             {"layer": item.layer, "status": item.status, "reason": item.reason}
             for item in validations
         ],
+        "paradata": None
+        if not paradata
+        else {
+            "totalSeconds": paradata.total_seconds,
+            "questionTimings": paradata.question_timings,
+            "pauses": paradata.pauses,
+            "correctionCount": paradata.correction_count,
+            "backNavCount": paradata.back_nav_count,
+            "gpsLatitude": paradata.gps_lat,
+            "gpsLongitude": paradata.gps_lng,
+            "device": paradata.device,
+            "mode": paradata.mode,
+            "network": paradata.network,
+        },
         "trust": None
         if not trust
         else {
@@ -269,7 +318,7 @@ def _response_to_flag(db, row: Response) -> dict[str, Any]:
     survey = db.query(Survey).filter(Survey.survey_id == row.survey_id).first()
     validation = (
         db.query(ValidationResult)
-        .filter(ValidationResult.response_id == row.id)
+        .filter(ValidationResult.response_id == row.id, ValidationResult.status.in_(["fail", "warn"]))
         .order_by(ValidationResult.created_at.asc())
         .first()
     )
@@ -283,3 +332,64 @@ def _response_to_flag(db, row: Response) -> dict[str, Any]:
         "trustLevel": row.trust_level or "Amber",
         "timestamp": row.created_at.isoformat() if row.created_at else "",
     }
+
+
+def _coding_results_for_answers(db, survey: Survey, response_id, answers: dict[str, Any]) -> list[CodingResult]:
+    codeable = _codeable_fields(survey)
+    rows: list[CodingResult] = []
+    for field, code_type in codeable.items():
+        raw = str(answers.get(field) or "").strip()
+        if not raw:
+            continue
+        suggestions = _code_suggestions(db, raw, code_type)
+        top = suggestions[0] if suggestions else None
+        rows.append(
+            CodingResult(
+                response_id=response_id,
+                field=field,
+                raw_text=raw,
+                suggestions=suggestions,
+                approved_code=None,
+                approved_label=None,
+                source=top.get("source", "local_rag") if top else "local_rag",
+                confidence=float(top.get("confidence", 0) if top else 0),
+                needs_review=True,
+            )
+        )
+    return rows
+
+
+def _codeable_fields(survey: Survey) -> dict[str, str]:
+    graph = survey.question_graph or survey.survey_data or {}
+    fields: dict[str, str] = {}
+    for node in graph.get("nodes", []) if isinstance(graph, dict) else []:
+        field = node.get("id")
+        code_type = node.get("codeType") or node.get("code_type") or node.get("standard_code")
+        if field and code_type:
+            fields[str(field)] = str(code_type)
+    for fallback in ("occupation", "industry"):
+        fields.setdefault(fallback, "NCO")
+    return fields
+
+
+def _code_suggestions(db, raw: str, code_type: str) -> list[dict[str, Any]]:
+    needle = raw.lower()
+    rows = db.query(ClassificationCode).filter(ClassificationCode.code_type == code_type).limit(1000).all()
+    suggestions: list[dict[str, Any]] = []
+    for row in rows:
+        haystack = [row.label or "", row.code or "", *(row.synonyms or [])]
+        matched = next((item for item in haystack if item and needle in item.lower()), None)
+        reverse_match = next((item for item in haystack if item and item.lower() in needle), None)
+        if not matched and not reverse_match:
+            continue
+        suggestions.append(
+            {
+                "code": row.code,
+                "type": row.code_type,
+                "label": row.label,
+                "confidence": 96 if matched else 88,
+                "source": row.external_source or "local_rag",
+                "reason": f"Matched '{raw}' to {row.code_type} {row.code} using persisted classification synonyms",
+            }
+        )
+    return sorted(suggestions, key=lambda item: item["confidence"], reverse=True)[:5]

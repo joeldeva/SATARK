@@ -1,5 +1,4 @@
 import copy
-import json
 import logging
 import re
 from typing import Dict, List, Optional
@@ -10,73 +9,19 @@ logger = logging.getLogger(__name__)
 class RAGEngine:
     """
     Question retrieval for the deterministic survey engine.
-    Uses vector search when optional dependencies are installed and falls back
-    to explainable keyword ranking.
+    Uses explainable local keyword ranking only; no model downloads or external
+    embedding services are allowed in offline mode.
     """
 
     def __init__(self, knowledge_base_loader):
         self.kb = knowledge_base_loader
-        self.collection = None
-        self._use_vector = False
-
-        try:
-            from sentence_transformers import SentenceTransformer
-            import chromadb
-
-            self.model = SentenceTransformer("all-MiniLM-L6-v2")
-            self.client = chromadb.Client()
-            self._use_vector = True
-            logger.info("RAG vector mode enabled")
-        except Exception as exc:
-            logger.info("RAG keyword mode enabled: %s", exc)
+        logger.info("RAG local keyword mode enabled")
 
     def build_index(self):
-        if not self._use_vector:
-            return self
-
-        try:
-            try:
-                self.collection = self.client.get_collection("satark_questions")
-                return self
-            except Exception:
-                self.collection = self.client.create_collection("satark_questions")
-
-            documents, metadatas, ids = [], [], []
-            for question in self.kb.get_all_questions():
-                documents.append(self._question_text(question))
-                metadatas.append({
-                    "domain": question.get("domain"),
-                    "question_id": question["id"],
-                    "raw": json.dumps(question),
-                })
-                ids.append(question["id"])
-
-            if documents:
-                self.collection.add(documents=documents, metadatas=metadatas, ids=ids)
-        except Exception as exc:
-            logger.warning("Vector index unavailable, falling back to keyword mode: %s", exc)
-            self._use_vector = False
-
         return self
 
     def search(self, query: str, domain: Optional[str] = None, tags: Optional[List[str]] = None, top_k: int = 20) -> List[Dict]:
-        if self._use_vector and self.collection:
-            return self._vector_search(query, domain, tags or [], top_k)
         return self._keyword_search(query, domain, tags or [], top_k)
-
-    def _vector_search(self, query: str, domain: Optional[str], tags: List[str], top_k: int) -> List[Dict]:
-        try:
-            where = {"domain": domain} if domain else None
-            results = self.collection.query(query_texts=[query], n_results=top_k, where=where)
-            questions = []
-            for index, metadata in enumerate(results.get("metadatas", [[]])[0]):
-                question = json.loads(metadata["raw"])
-                question["relevance_score"] = 1 - results.get("distances", [[0]])[0][index]
-                questions.append(question)
-            return questions
-        except Exception as exc:
-            logger.warning("Vector search failed, using keyword mode: %s", exc)
-            return self._keyword_search(query, domain, tags, top_k)
 
     def _keyword_search(self, query: str, domain: Optional[str], tags: List[str], top_k: int) -> List[Dict]:
         query_words = self._tokens(query)

@@ -218,11 +218,20 @@ async def update_survey_endpoint(survey_id: str, request: Dict[str, Any]):
 @router.post("/surveys/{survey_id}/publish", dependencies=[Depends(require_scope("survey:write"))])
 async def publish_survey_endpoint(survey_id: str, user: dict = Depends(get_current_user)):
     from app.services.survey_service import publish_survey
+    from app.services.validation_service import ensure_default_validation_rules
+    from models.survey import Survey
+    from services.assignment_service import auto_assign_published_survey
     from services.events import publish as publish_event
 
     db = _open_db()
     try:
-        result = publish_survey(db, survey_id, user.get("username") or "sdrd")
+        actor = user.get("username") or "sdrd"
+        result = publish_survey(db, survey_id, actor)
+        survey_row = db.query(Survey).filter(Survey.survey_id == survey_id).first()
+        created_rules = ensure_default_validation_rules(db, survey_id, survey_row.question_graph if survey_row else None)
+        assignment = auto_assign_published_survey(db, survey_id, actor)
+        result["assignment"] = assignment
+        result["validationRulesCreated"] = len(created_rules)
     finally:
         db.close()
 
@@ -230,6 +239,7 @@ async def publish_survey_endpoint(survey_id: str, user: dict = Depends(get_curre
         "survey_id": survey_id,
         "version": result["version"],
         "published_by": user.get("username"),
+        "assignment": result.get("assignment"),
     })
     return result
 
@@ -521,6 +531,17 @@ async def responses(status: str | None = Query(default=None)):
         db.close()
 
 
+@router.get("/dashboard/flags", dependencies=[Depends(require_scope("dashboard:view"))])
+async def dashboard_flags(status: str | None = Query(default="flagged")):
+    from services.response_service import flagged_responses
+
+    db = _open_db()
+    try:
+        return {"responses": flagged_responses(db, status=status)}
+    finally:
+        db.close()
+
+
 @router.get("/responses/{response_id}", dependencies=[Depends(require_scope("validation:review"))])
 async def response_detail(response_id: str):
     from services.response_service import response_detail as load_response_detail
@@ -568,27 +589,88 @@ async def coding(request: Dict[str, Any]):
 
 
 @router.post("/coding/review", dependencies=[Depends(require_scope("coding:review"))])
-async def coding_review(request: Dict[str, Any]):
-    from models.platform import CodingResult
+async def coding_review(request: Dict[str, Any], user: dict = Depends(get_current_user)):
+    from models.platform import AuditLog, CodingResult
 
     raw_text = str(request.get("rawText") or request.get("raw_text") or request.get("rawResponse") or "")
     field = str(request.get("field") or "occupation")
+    coding_id = request.get("id") or request.get("codingResultId") or request.get("coding_result_id")
     db = _open_db()
     try:
-        row = CodingResult(
-            response_id=request.get("responseId") or request.get("response_id"),
-            field=field,
-            raw_text=raw_text,
-            suggestions=request.get("suggestions") or [],
-            approved_code=request.get("approvedCode") or request.get("approved_code"),
-            approved_label=request.get("approvedLabel") or request.get("approved_label"),
-            source=str(request.get("source") or "human_review"),
-            confidence=float(request.get("confidence") or 100 if request.get("approvedCode") or request.get("approved_code") else 0),
-            needs_review=not bool(request.get("approved") or request.get("approvedCode") or request.get("approved_code")),
-        )
+        row = db.get(CodingResult, coding_id) if coding_id else None
+        if row:
+            raw_text = raw_text or row.raw_text
+            field = field or row.field
+            row.raw_text = raw_text
+            row.field = field
+            row.suggestions = request.get("suggestions") or row.suggestions or []
+            row.approved_code = request.get("approvedCode") or request.get("approved_code") or row.approved_code
+            row.approved_label = request.get("approvedLabel") or request.get("approved_label") or row.approved_label
+            row.source = str(request.get("source") or "human_review")
+            row.confidence = float(request.get("confidence") or (100 if row.approved_code else row.confidence or 0))
+            row.needs_review = not bool(request.get("approved") or row.approved_code)
+        else:
+            row = CodingResult(
+                response_id=request.get("responseId") or request.get("response_id"),
+                field=field,
+                raw_text=raw_text,
+                suggestions=request.get("suggestions") or [],
+                approved_code=request.get("approvedCode") or request.get("approved_code"),
+                approved_label=request.get("approvedLabel") or request.get("approved_label"),
+                source=str(request.get("source") or "human_review"),
+                confidence=float(request.get("confidence") or (100 if request.get("approvedCode") or request.get("approved_code") else 0)),
+                needs_review=not bool(request.get("approved") or request.get("approvedCode") or request.get("approved_code")),
+            )
         db.add(row)
+        db.flush()
+        db.add(
+            AuditLog(
+                actor=user.get("username") or "dpd",
+                action="coding.reviewed" if not row.needs_review else "coding.needs_review",
+                entity_type="coding_result",
+                entity_id=str(row.id),
+                payload=request,
+                reason=str(request.get("reason") or "DPD reviewed classification suggestion"),
+            )
+        )
         db.commit()
         return {"ok": True, "codingResultId": str(row.id), "needsReview": row.needs_review}
+    finally:
+        db.close()
+
+
+@router.get("/coding-review", dependencies=[Depends(require_scope("coding:review"))])
+async def coding_review_queue(needs_review: bool | None = Query(default=True)):
+    from models.platform import CodingResult, Response
+
+    db = _open_db()
+    try:
+        query = db.query(CodingResult).order_by(CodingResult.created_at.desc())
+        if needs_review is not None:
+            query = query.filter(CodingResult.needs_review == needs_review)
+        payload = []
+        for row in query.limit(200).all():
+            response = db.get(Response, row.response_id) if row.response_id else None
+            suggestions = row.suggestions or []
+            top = suggestions[0] if suggestions else None
+            payload.append({
+                "id": str(row.id),
+                "responseId": str(row.response_id) if row.response_id else None,
+                "field": row.field,
+                "rawText": row.raw_text,
+                "suggestions": suggestions,
+                "suggested": top,
+                "confidence": row.confidence,
+                "source": row.source,
+                "needsReview": row.needs_review,
+                "approvedCode": row.approved_code,
+                "approvedLabel": row.approved_label,
+                "surveyId": response.survey_id if response else None,
+                "enumeratorId": response.enumerator_id if response else None,
+                "status": response.status if response else None,
+                "createdAt": row.created_at.isoformat() if row.created_at else None,
+            })
+        return {"items": payload}
     finally:
         db.close()
 
@@ -616,6 +698,25 @@ async def enumerator(enumerator_id: str):
     if not item:
         raise HTTPException(status_code=404, detail="Enumerator not found")
     return {"enumerator": item}
+
+
+@router.get("/households", dependencies=[Depends(require_scope("dashboard:view"))])
+async def households(region: str | None = Query(default=None)):
+    from models.platform import Household
+
+    db = _open_db()
+    try:
+        payload = []
+        for row in db.query(Household).order_by(Household.id.asc()).limit(500).all():
+            prepop = row.prepopulated or {}
+            if region:
+                haystack = " ".join(str(value) for value in prepop.values()).lower()
+                if region.lower() not in haystack and region.lower() not in row.id.lower():
+                    continue
+            payload.append({"id": row.id, "prepop": prepop})
+        return {"households": payload}
+    finally:
+        db.close()
 
 
 @router.get("/assignments", dependencies=[Depends(require_scope("dashboard:view"))])
@@ -658,6 +759,106 @@ async def assignments(
         db.close()
 
 
+@router.post("/assignments", dependencies=[Depends(require_scope("dashboard:view"))])
+async def create_assignments(request: Dict[str, Any], user: dict = Depends(get_current_user)):
+    from models.platform import Assignment, AuditLog, EnumeratorProfile, Household
+    from models.survey import Survey
+
+    survey_id = str(request.get("surveyId") or request.get("survey_id") or "")
+    if not survey_id:
+        raise HTTPException(status_code=400, detail="surveyId is required")
+    enumerator_ids = request.get("enumeratorIds") or request.get("enumerator_ids") or [request.get("enumeratorId") or request.get("enumerator_id")]
+    household_ids = request.get("householdIds") or request.get("household_ids") or [request.get("householdId") or request.get("household_id")]
+    enumerator_ids = [str(item) for item in enumerator_ids if item]
+    household_ids = [str(item) for item in household_ids if item] or [None]
+    if not enumerator_ids:
+        raise HTTPException(status_code=400, detail="At least one enumerator is required")
+
+    db = _open_db()
+    try:
+        survey = db.query(Survey).filter(Survey.survey_id == survey_id).first()
+        if not survey:
+            raise HTTPException(status_code=404, detail="Survey not found")
+        if survey.status != "published":
+            raise HTTPException(status_code=409, detail="Only published surveys can be assigned")
+        created = []
+        for enumerator_id in enumerator_ids:
+            enumerator_row = db.get(EnumeratorProfile, enumerator_id)
+            if not enumerator_row:
+                raise HTTPException(status_code=404, detail=f"Enumerator '{enumerator_id}' not found")
+            for household_id in household_ids:
+                if household_id and not db.get(Household, household_id):
+                    raise HTTPException(status_code=404, detail=f"Household '{household_id}' not found")
+                row = Assignment(survey_id=survey_id, enumerator_id=enumerator_id, household_id=household_id, status="assigned")
+                db.add(row)
+                db.flush()
+                enumerator_row.assigned = int(enumerator_row.assigned or 0) + 1
+                household = db.get(Household, household_id) if household_id else None
+                created.append({
+                    "id": str(row.id),
+                    "surveyId": row.survey_id,
+                    "surveyTitle": survey.title,
+                    "enumeratorId": row.enumerator_id,
+                    "enumeratorName": enumerator_row.name,
+                    "householdId": row.household_id,
+                    "household": household.prepopulated if household else None,
+                    "status": row.status,
+                    "createdAt": row.created_at.isoformat() if row.created_at else None,
+                })
+        db.add(
+            AuditLog(
+                actor=user.get("username") or "fod",
+                action="assignments.created",
+                entity_type="survey",
+                entity_id=survey_id,
+                payload={"assignments": created, "request": request},
+                reason=f"Created {len(created)} assignment(s) for published survey {survey_id}",
+            )
+        )
+        db.commit()
+        return {"assignments": created}
+    finally:
+        db.close()
+
+
+@router.patch("/assignments/{assignment_id}", dependencies=[Depends(require_scope("dashboard:view"))])
+async def update_assignment(assignment_id: str, request: Dict[str, Any], user: dict = Depends(get_current_user)):
+    from models.platform import Assignment, AuditLog
+
+    status_value = str(request.get("status") or "").strip()
+    if not status_value:
+        raise HTTPException(status_code=400, detail="status is required")
+    db = _open_db()
+    try:
+        row = db.get(Assignment, assignment_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Assignment not found")
+        previous = row.status
+        row.status = status_value
+        db.add(
+            AuditLog(
+                actor=user.get("username") or "fod",
+                action="assignment.status_changed",
+                entity_type="assignment",
+                entity_id=assignment_id,
+                payload={"from": previous, "to": status_value, "request": request},
+                reason=f"Assignment moved from {previous} to {status_value}",
+            )
+        )
+        db.commit()
+        return {
+            "assignment": {
+                "id": str(row.id),
+                "surveyId": row.survey_id,
+                "enumeratorId": row.enumerator_id,
+                "householdId": row.household_id,
+                "status": row.status,
+            }
+        }
+    finally:
+        db.close()
+
+
 @router.post("/actions", dependencies=[Depends(require_scope("dashboard:view"))])
 async def actions(request: Dict[str, Any], user: dict = Depends(get_current_user)):
     from models.platform import AuditLog
@@ -684,8 +885,66 @@ async def actions(request: Dict[str, Any], user: dict = Depends(get_current_user
         db.close()
 
 
+@router.post("/responses/{response_id}/review", dependencies=[Depends(require_scope("validation:review"))])
+async def review_response(response_id: str, request: Dict[str, Any], user: dict = Depends(get_current_user)):
+    from models.platform import Assignment, AuditLog, Response
+
+    action = str(request.get("action") or "").strip()
+    if action not in {"approve", "re_interview", "escalate"}:
+        raise HTTPException(status_code=400, detail="action must be approve, re_interview, or escalate")
+    db = _open_db()
+    try:
+        response = db.get(Response, response_id)
+        if not response:
+            raise HTTPException(status_code=404, detail="Response not found")
+        previous = response.status
+        response.status = "approved" if action == "approve" else action
+        created_assignment = None
+        if action == "re_interview":
+            assignment = Assignment(
+                survey_id=response.survey_id,
+                enumerator_id=response.enumerator_id,
+                household_id=response.household_id,
+                status="assigned",
+            )
+            db.add(assignment)
+            db.flush()
+            created_assignment = str(assignment.id)
+            if response.enumerator_id:
+                from models.platform import EnumeratorProfile
+
+                enumerator = db.get(EnumeratorProfile, response.enumerator_id)
+                if enumerator:
+                    enumerator.assigned = int(enumerator.assigned or 0) + 1
+        db.add(
+            AuditLog(
+                actor=user.get("username") or "dpd",
+                action=f"response.{action}",
+                entity_type="response",
+                entity_id=response_id,
+                payload={"from": previous, "to": response.status, "createdAssignmentId": created_assignment},
+                reason=str(request.get("reason") or f"DPD marked response as {response.status}"),
+            )
+        )
+        db.commit()
+        return {"ok": True, "responseId": response_id, "status": response.status, "assignmentId": created_assignment}
+    finally:
+        db.close()
+
+
 @router.get("/analytics", dependencies=[Depends(require_scope("dashboard:view"))])
 async def analytics():
+    from services.dashboard_data import analytics_snapshot
+
+    db = _open_db()
+    try:
+        return analytics_snapshot(db)
+    finally:
+        db.close()
+
+
+@router.get("/dashboard/metrics", dependencies=[Depends(require_scope("dashboard:view"))])
+async def dashboard_metrics():
     from services.dashboard_data import analytics_snapshot
 
     db = _open_db()

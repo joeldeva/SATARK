@@ -26,6 +26,12 @@ docs/
 
 ## Run Locally
 
+Create local Docker env once:
+
+```powershell
+Copy-Item .env.example .env
+```
+
 Infra:
 
 ```powershell
@@ -35,7 +41,6 @@ docker compose up -d postgres redis chroma
 Complete backend stack:
 
 ```powershell
-$env:SATARK_SECRET_KEY="<long-random-secret>"
 docker compose up -d postgres redis chroma api
 ```
 

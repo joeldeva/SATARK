@@ -20,7 +20,7 @@ PERMISSIONS_BY_ROLE: dict[str, set[str]] = {
         "validation:review",
         "dashboard:view",
     },
-    "sdrd": {"survey:read", "survey:write"},
+    "sdrd": {"survey:read", "survey:write", "dashboard:view", "collect:write"},
     "fod": {"dashboard:view", "collect:write", "survey:read"},
     "dpd": {"coding:review", "validation:review", "dashboard:view", "survey:read"},
     "scd": {"dashboard:view", "survey:read"},

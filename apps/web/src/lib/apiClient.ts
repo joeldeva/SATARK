@@ -1,123 +1,164 @@
-import { seedData } from '../data/seed';
 import { useAppStore } from '../store/appStore';
-import type { AnalyticsSnapshot, ApiResponse, CodeRecord, Enumerator, LiveFlag, Survey, User } from '../types';
-import { evaluateIntelligence, findCodeSuggestion } from './intelligence';
+import type {
+  AnalyticsSnapshot,
+  ApiResponse,
+  Assignment,
+  CodeRecord,
+  CodeSuggestion,
+  CodingReviewItem,
+  Enumerator,
+  Household,
+  IntelligenceResult,
+  LiveFlag,
+  ResponseDetail,
+  Survey,
+  User
+} from '../types';
 import { getQueuedCount, queueRequest, syncQueue } from './offlineQueue';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
-async function request<T>(path: string, options: RequestInit = {}, fallback: () => T | Promise<T>): Promise<ApiResponse<T>> {
-  const offline = useAppStore.getState().simulatedOffline || (typeof navigator !== 'undefined' && !navigator.onLine);
-  if (offline) {
-    return { data: await fallback(), source: 'seed' };
+function authHeaders(): Record<string, string> {
+  const token = useAppStore.getState().token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function isOfflineMode() {
+  return useAppStore.getState().simulatedOffline || (typeof navigator !== 'undefined' && !navigator.onLine);
+}
+
+function unavailableMessage(path: string) {
+  return `SATARK API is unavailable for ${path}. Start the local backend stack instead of using bundled fallback data.`;
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
+  if (isOfflineMode()) {
+    throw new Error(unavailableMessage(path));
   }
 
-  try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
-    });
-    if (!response.ok) throw new Error(`API ${response.status}`);
-    return { data: (await response.json()) as T, source: 'api' };
-  } catch {
-    return { data: await fallback(), source: 'seed' };
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+      ...(options.headers || {})
+    }
+  });
+
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const body = await response.json();
+      detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body);
+    } catch {
+      detail = await response.text().catch(() => '');
+    }
+    throw new Error(`SATARK API ${response.status}${detail ? `: ${detail}` : ''}`);
   }
+
+  return { data: (await response.json()) as T, source: 'api' };
 }
 
 export async function login(username: string, password: string) {
-  return request<{ user: Omit<User, 'password'>; token: string }>(
-    '/auth/login',
-    {
-      method: 'POST',
-      body: JSON.stringify({ username, password })
-    },
-    () => {
-      const user = seedData.users.find((item) => item.username === username && item.password === password);
-      if (!user) throw new Error('Invalid credentials');
-      return {
-        user: { username: user.username, role: user.role, name: user.name },
-        token: `seed-${user.username}`
-      };
-    }
-  );
-}
-
-export async function getSurveys() {
-  return request<{ surveys: Survey[] }>('/surveys', {}, () => ({ surveys: [seedData.survey] }));
-}
-
-export async function generateSurvey(prompt: string) {
-  return request<{ survey: Survey; generated?: Record<string, unknown>; note: string }>(
-    '/surveys/generate',
-    {
-      method: 'POST',
-      body: JSON.stringify({ prompt })
-    },
-    () => ({
-      survey: seedData.survey,
-      note: 'Draft generated from seed intelligence - review before publishing'
-    })
-  );
-}
-
-export async function getQuestionBank() {
-  return request<{ questions: Survey['nodes'] }>('/question-bank', {}, () => ({
-    questions: seedData.survey.nodes.filter((node) => node.type !== 'adaptive')
-  }));
-}
-
-export async function getCodes() {
-  return request<{ codes: CodeRecord[] }>('/codes', {}, () => ({ codes: seedData.codes }));
-}
-
-export async function getEnumerators() {
-  return request<{ enumerators: Enumerator[] }>('/enumerators', {}, () => ({
-    enumerators: useAppStore.getState().enumerators
-  }));
-}
-
-export async function getEnumerator(id: string) {
-  return request<{ enumerator: Enumerator }>(`/enumerators/${id}`, {}, () => {
-    const enumerator = useAppStore.getState().enumerators.find((item) => item.id === id) || seedData.enumerators[0];
-    return { enumerator };
+  return request<{ user: Omit<User, 'password'>; token: string; scopes?: string[] }>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password })
   });
 }
 
+export async function getSurveys() {
+  return request<{ surveys: Survey[] }>('/surveys');
+}
+
+export async function generateSurvey(prompt: string) {
+  return request<{ survey: Survey; generated?: Record<string, unknown>; note: string }>('/surveys/generate', {
+    method: 'POST',
+    body: JSON.stringify({ prompt })
+  });
+}
+
+export async function getQuestionBank() {
+  return request<{ questions: Survey['nodes'] }>('/question-bank');
+}
+
+export async function getCodes() {
+  return request<{ codes: CodeRecord[] }>('/codes');
+}
+
+export async function getEnumerators() {
+  return request<{ enumerators: Enumerator[] }>('/enumerators');
+}
+
+export async function getEnumerator(id: string) {
+  return request<{ enumerator: Enumerator }>(`/enumerators/${id}`);
+}
+
 export async function getAnalytics() {
-  return request<AnalyticsSnapshot>('/analytics', {}, buildSeedAnalytics);
+  return request<AnalyticsSnapshot>('/dashboard/metrics');
 }
 
 export async function getFlaggedResponses() {
-  return request<{ responses: LiveFlag[] }>('/responses?status=flagged', {}, () => ({
-    responses: useAppStore.getState().liveFlags
-  }));
+  return request<{ responses: LiveFlag[] }>('/dashboard/flags');
+}
+
+export async function getResponseDetail(responseId: string) {
+  return request<ResponseDetail>(`/responses/${responseId}`);
+}
+
+export async function reviewResponse(responseId: string, payload: { action: 'approve' | 're_interview' | 'escalate'; reason?: string }) {
+  return request<{ ok: boolean; responseId: string; status: string; assignmentId?: string | null }>(`/responses/${responseId}/review`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getHouseholds(region?: string) {
+  const qs = region ? `?region=${encodeURIComponent(region)}` : '';
+  return request<{ households: Household[] }>(`/households${qs}`);
+}
+
+export async function getAssignments(params: { surveyId?: string; enumeratorId?: string; status?: string } = {}) {
+  const qs = new URLSearchParams();
+  if (params.surveyId) qs.set('survey_id', params.surveyId);
+  if (params.enumeratorId) qs.set('enumerator_id', params.enumeratorId);
+  if (params.status) qs.set('status', params.status);
+  const suffix = qs.toString() ? `?${qs}` : '';
+  return request<{ assignments: Assignment[] }>(`/assignments${suffix}`);
+}
+
+export async function createAssignment(payload: { surveyId: string; enumeratorId?: string; enumeratorIds?: string[]; householdId?: string; householdIds?: string[] }) {
+  return request<{ assignments: Assignment[] }>('/assignments', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateAssignment(assignmentId: string, payload: { status: string; reason?: string }) {
+  return request<{ assignment: Assignment }>(`/assignments/${assignmentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function submitConsent(payload: Record<string, unknown>) {
-  return request<{ ok: boolean; consentId: string }>(
-    '/consent',
-    { method: 'POST', body: JSON.stringify(payload) },
-    () => ({ ok: true, consentId: `consent-${Date.now()}` })
-  );
+  return request<{ ok: boolean; consentId: string }>('/consent', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function prepopulate(householdId: string) {
-  return request<{ household: (typeof seedData.households)[number] | null }>(
-    '/prepopulate',
-    { method: 'POST', body: JSON.stringify({ householdId }) },
-    () => ({ household: seedData.households.find((item) => item.id === householdId) || null })
-  );
+  return request<{ household: Household | null }>('/prepopulate', {
+    method: 'POST',
+    body: JSON.stringify({ householdId })
+  });
 }
 
 export async function startIntelligenceSession(payload: Record<string, unknown>) {
-  return request<{ sessionId: string }>(
-    '/intelligence/sessions',
-    { method: 'POST', body: JSON.stringify(payload) },
-    () => ({ sessionId: `session-${Date.now()}` })
-  );
+  return request<{ sessionId: string }>('/intelligence/sessions', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function submitAnswer(payload: {
@@ -127,57 +168,166 @@ export async function submitAnswer(payload: {
   speedMode: 'normal' | 'too-fast';
   elapsedSeconds: number;
 }) {
-  return request('/intelligence/answer', { method: 'POST', body: JSON.stringify(payload) }, () => evaluateIntelligence(payload));
+  return request<IntelligenceResult>('/intelligence/answer', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function submitCollectionResponse(payload: Record<string, unknown>) {
-  const offline = useAppStore.getState().simulatedOffline || (typeof navigator !== 'undefined' && !navigator.onLine);
-  if (offline) {
+  if (isOfflineMode()) {
     const count = await queueRequest('/responses', 'POST', payload);
     useAppStore.getState().setQueuedCount(count);
-    return { data: { queued: true, responseId: `queued-${Date.now()}` }, source: 'seed' as const };
+    return { data: { queued: true, responseId: `queued-${Date.now()}` }, source: 'queued' as const };
   }
 
-  try {
-    const response = await fetch(`${API_BASE}/responses`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!response.ok) throw new Error('Response submit failed');
-    return { data: await response.json(), source: 'api' as const };
-  } catch {
-    const count = await queueRequest('/responses', 'POST', payload);
-    useAppStore.getState().setQueuedCount(count);
-    return { data: { queued: true, responseId: `queued-${Date.now()}` }, source: 'seed' as const };
+  const response = await fetch(`${API_BASE}/responses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    throw new Error(`SATARK API ${response.status}: response submit failed`);
   }
+
+  return { data: await response.json(), source: 'api' as const };
 }
 
 export async function submitCoding(rawResponse: string) {
-  return request<{ suggestion: ReturnType<typeof findCodeSuggestion> }>(
-    '/coding',
-    { method: 'POST', body: JSON.stringify({ rawResponse }) },
-    () => ({ suggestion: findCodeSuggestion(rawResponse) })
-  );
+  return request<{ suggestion: CodeSuggestion | null; is_verdict: false; needs_review: true }>('/coding', {
+    method: 'POST',
+    body: JSON.stringify({ rawResponse })
+  });
 }
 
 export async function reviewCoding(payload: Record<string, unknown>) {
-  return request<{ ok: boolean }>('/coding/review', { method: 'POST', body: JSON.stringify(payload) }, () => ({ ok: true }));
+  return request<{ ok: boolean }>('/coding/review', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getCodingReviewQueue(needsReview = true) {
+  return request<{ items: CodingReviewItem[] }>(`/coding-review?needs_review=${needsReview ? 'true' : 'false'}`);
 }
 
 export async function postAction(payload: Record<string, unknown>) {
-  return request<{ ok: boolean }>('/actions', { method: 'POST', body: JSON.stringify(payload) }, () => ({ ok: true }));
+  return request<{ ok: boolean }>('/actions', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getSurvey(surveyId: string) {
+  return request<{ survey: Survey & { status?: string; version?: number } }>(`/surveys/${surveyId}`);
+}
+
+export async function createSurvey(
+  payload: Partial<Survey> & {
+    id?: string;
+    title?: Record<string, string>;
+    domain?: string;
+    question_graph?: Record<string, unknown>;
+  }
+) {
+  return request<{ survey: Survey & { status?: string; version?: number } }>('/surveys', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function patchSurvey(surveyId: string, payload: Record<string, unknown>) {
+  return request<{ survey: Survey & { status?: string; version?: number } }>(`/surveys/${surveyId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function publishSurvey(surveyId: string) {
+  return request<{ survey_id: string; status: string; version: number; published_at?: string; assignment?: Assignment; validationRulesCreated?: number }>(`/surveys/${surveyId}/publish`, {
+    method: 'POST'
+  });
+}
+
+export async function ragStatus() {
+  return request<{ enabled: boolean; buckets: Record<string, { chroma_count?: number; memory_count?: number }> }>('/rag/status');
+}
+
+export async function ragQuery(payload: { bucket: string; question: string; k?: number }) {
+  return request<{
+    answer: string;
+    sources: Array<{ id: string; text: string; score: number }>;
+    confidence: number;
+    is_verdict: false;
+    needs_review: true;
+  }>('/rag/query', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function ragIngest(
+  file: File,
+  bucket: string
+): Promise<ApiResponse<{ source_id: string; bucket: string; chunk_count: number; sha256: string; byte_size: number; is_verdict: false }>> {
+  if (isOfflineMode()) {
+    throw new Error(unavailableMessage('/rag/ingest'));
+  }
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('bucket', bucket);
+  const response = await fetch(`${API_BASE}/rag/ingest`, {
+    method: 'POST',
+    headers: { ...authHeaders() },
+    body: form
+  });
+  if (!response.ok) {
+    throw new Error(`SATARK API ${response.status}: RAG ingest failed`);
+  }
+  return { data: await response.json(), source: 'api' };
+}
+
+export async function getValidationRules(surveyId?: string) {
+  const qs = surveyId ? `?survey_id=${encodeURIComponent(surveyId)}` : '';
+  return request<{ rules: Array<{ id: string; survey_id: string; field: string; rule_type: string; params: Record<string, unknown>; severity: string; reason_template: string }> }>(
+    `/validation-rules${qs}`
+  );
+}
+
+export async function createValidationRule(payload: Record<string, unknown>) {
+  return request<{ id: string }>('/validation-rules', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteValidationRule(ruleId: string) {
+  return request<{ ok: boolean }>(`/validation-rules/${ruleId}`, { method: 'DELETE' });
+}
+
+export async function getAdaptiveLogic(surveyId?: string) {
+  const qs = surveyId ? `?survey_id=${encodeURIComponent(surveyId)}` : '';
+  return request<{ rules: Array<{ id: string; survey_id: string; trigger: Record<string, unknown>; action: string; target: Record<string, unknown> }> }>(`/adaptive-logic${qs}`);
+}
+
+export async function createAdaptiveLogic(payload: Record<string, unknown>) {
+  return request<{ id: string }>('/adaptive-logic', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function deleteAdaptiveLogic(ruleId: string) {
+  return request<{ ok: boolean }>(`/adaptive-logic/${ruleId}`, { method: 'DELETE' });
 }
 
 export async function exportData(format: 'csv' | 'pdf') {
-  return request<{ fileName: string; content: string }>(
-    '/export',
-    { method: 'POST', body: JSON.stringify({ format }) },
-    () => ({
-      fileName: `satark-export.${format}`,
-      content: 'survey,responses,validated,error_rate\nPLFS 2025-26,1000,90,10'
-    })
-  );
+  return request<{ fileName: string; content: string }>('/export', {
+    method: 'POST',
+    body: JSON.stringify({ format })
+  });
 }
 
 export async function refreshQueueCount() {
@@ -187,66 +337,8 @@ export async function refreshQueueCount() {
 }
 
 export async function syncOfflineQueue() {
-  if (useAppStore.getState().simulatedOffline || !navigator.onLine) return refreshQueueCount();
-  const count = await syncQueue(API_BASE);
+  if (isOfflineMode()) return refreshQueueCount();
+  const count = await syncQueue(API_BASE, authHeaders());
   useAppStore.getState().setQueuedCount(count);
   return count;
-}
-
-function buildSeedAnalytics(): AnalyticsSnapshot {
-  const enumerators = useAppStore.getState().enumerators;
-  return {
-    responsesToday: 186,
-    flagged: useAppStore.getState().liveFlags.length + 13,
-    averageConfidence: 86.4,
-    activeEnumerators: enumerators.length,
-    totalResponses: 1000,
-    validatedRate: 90,
-    errorRate: 10,
-    ruralUrban: [33.4, 66.6],
-    genderRatio: { male: 334, female: 333 },
-    confidenceScore: 86.4,
-    stateValidation: [
-      { state: 'Uttar Pradesh', rate: 89.5 },
-      { state: 'Maharashtra', rate: 88.8 },
-      { state: 'Bihar', rate: 75.8 },
-      { state: 'West Bengal', rate: 79.2 },
-      { state: 'Madhya Pradesh', rate: 76.9 },
-      { state: 'Tamil Nadu', rate: 91.4 }
-    ],
-    enumeratorRanking: [
-      ...enumerators.map((enumerator, index) => ({
-        ...enumerator,
-        responses: enumerator.completed * 9 + index * 11,
-        errorRate: enumerator.trustLevel === 'Red' ? 14.1 : 3.3 + index * 2.5,
-        flaggedRate: enumerator.trustLevel === 'Red' ? 18.4 : 4.1 + index
-      })),
-      { ...seedData.enumerators[0], id: 'ENUM004', responses: 81, errorRate: 3.3, flaggedRate: 7 },
-      { ...seedData.enumerators[0], id: 'ENUM008', responses: 116, errorRate: 3.3, flaggedRate: 4.1 },
-      { ...seedData.enumerators[0], id: 'ENUM006', responses: 181, errorRate: 5.8, flaggedRate: 7 },
-      { ...seedData.enumerators[0], id: 'ENUM001', responses: 173, errorRate: 5.9, flaggedRate: 0.8 }
-    ],
-    responseTrend: [
-      { label: 'Mon', responses: 120, flagged: 8 },
-      { label: 'Tue', responses: 148, flagged: 11 },
-      { label: 'Wed', responses: 171, flagged: 16 },
-      { label: 'Thu', responses: 154, flagged: 13 },
-      { label: 'Fri', responses: 186, flagged: 15 },
-      { label: 'Sat', responses: 132, flagged: 9 }
-    ],
-    sectorDistribution: [
-      { sector: 'Labour', value: 38 },
-      { sector: 'Health', value: 22 },
-      { sector: 'Agriculture', value: 18 },
-      { sector: 'Education', value: 12 },
-      { sector: 'Enterprise', value: 10 }
-    ],
-    confidenceDistribution: [
-      { bucket: '0-50', count: 32 },
-      { bucket: '51-70', count: 91 },
-      { bucket: '71-85', count: 240 },
-      { bucket: '86-95', count: 421 },
-      { bucket: '96-100', count: 216 }
-    ]
-  };
 }

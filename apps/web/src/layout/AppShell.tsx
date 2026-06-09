@@ -21,29 +21,31 @@ const navByRole: Record<Role, Array<{ to: string; label: string; icon: typeof Ho
     { to: '/sdrd', label: 'Survey design', icon: PenTool },
     { to: '/fod', label: 'Field operations', icon: Users },
     { to: '/dpd', label: 'Processing', icon: Code2 },
-    { to: '/collect/emp-2026', label: 'Collection client', icon: ClipboardList }
+    { to: '/collect/latest', label: 'Collection client', icon: ClipboardList }
   ],
   sdrd: [
     { to: '/sdrd', label: 'My surveys', icon: PenTool },
     { to: '/sdrd?tab=bank', label: 'Question bank', icon: Database },
     { to: '/sdrd?tab=codes', label: 'Code library', icon: Code2 },
-    { to: '/collect/emp-2026', label: 'Collection client', icon: ClipboardList }
+    { to: '/sdrd?tab=rules', label: 'Rules & logic', icon: ShieldCheck },
+    { to: '/sdrd?tab=kb', label: 'Knowledge base', icon: Database },
+    { to: '/collect/latest', label: 'Collection client', icon: ClipboardList }
   ],
   fod: [
     { to: '/fod', label: 'Enumerators', icon: Users },
     { to: '/fod?tab=assignments', label: 'Assignments', icon: MapPinned },
-    { to: '/collect/emp-2026', label: 'Collection client', icon: ClipboardList }
+    { to: '/collect/latest', label: 'Collection client', icon: ClipboardList }
   ],
   dpd: [
     { to: '/dpd', label: 'Coding review', icon: Code2 },
     { to: '/dpd?tab=validation', label: 'Validation queue', icon: ShieldCheck },
-    { to: '/collect/emp-2026', label: 'Collection client', icon: ClipboardList }
+    { to: '/collect/latest', label: 'Collection client', icon: ClipboardList }
   ],
   scd: [
     { to: '/scd', label: 'Command center', icon: Monitor },
     { to: '/scd?tab=quality', label: 'Quality dashboard', icon: ShieldCheck },
     { to: '/scd?tab=analytics', label: 'Analytics', icon: BarChart3 },
-    { to: '/collect/emp-2026', label: 'Collection client', icon: ClipboardList }
+    { to: '/collect/latest', label: 'Collection client', icon: ClipboardList }
   ]
 };
 

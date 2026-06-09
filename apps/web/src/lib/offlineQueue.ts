@@ -37,13 +37,13 @@ export async function getQueuedCount() {
   return db.count('requests');
 }
 
-export async function syncQueue(apiBase: string) {
+export async function syncQueue(apiBase: string, headers: Record<string, string> = {}) {
   const db = await dbPromise;
   const requests = await db.getAll('requests');
   for (const request of requests) {
     const response = await fetch(`${apiBase}${request.url}`, {
       method: request.method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: request.body ? JSON.stringify(request.body) : undefined
     });
     if (response.ok && request.id) {

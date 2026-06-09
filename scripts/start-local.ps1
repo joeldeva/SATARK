@@ -8,6 +8,10 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "Docker Desktop is required for SATARK backend services: Postgres, Redis, and Chroma."
 }
 
+if (-not $env:SATARK_SECRET_KEY) {
+    $env:SATARK_SECRET_KEY = "local-offline-dev-secret-change-before-production"
+}
+
 Push-Location $root
 try {
     & docker compose up -d postgres redis chroma

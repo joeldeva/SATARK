@@ -310,7 +310,7 @@ export function SyncIndicator() {
         aria-pressed={simulatedOffline}
       >
         {simulatedOffline ? <CloudOff className="h-3.5 w-3.5" /> : <Wifi className="h-3.5 w-3.5" />}
-        Offline demo
+        Offline collection
       </button>
       <button
         type="button"

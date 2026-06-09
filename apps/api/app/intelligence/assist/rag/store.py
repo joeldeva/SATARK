@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import hashlib
+import math
+import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -17,6 +20,21 @@ _VALID_BUCKETS = {"survey_generation", "validation", "general"}
 def _bucket_name(bucket: str) -> str:
     bucket = (bucket or "general").strip().lower()
     return bucket if bucket in _VALID_BUCKETS else "general"
+
+
+def _embed_text(text: str, dimensions: int = 64) -> list[float]:
+    """Create a deterministic local embedding without downloading a model."""
+
+    vector = [0.0] * dimensions
+    for token in re.findall(r"\b[\w-]{2,}\b", (text or "").lower()):
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        index = int.from_bytes(digest[:4], "big") % dimensions
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        vector[index] += sign
+    norm = math.sqrt(sum(value * value for value in vector))
+    if not norm:
+        return vector
+    return [round(value / norm, 6) for value in vector]
 
 
 def chroma_client():
@@ -70,7 +88,12 @@ def upsert_chunks(
     if collection is None:
         raise RuntimeError("Chroma is not available; cannot ingest knowledge sources")
     try:
-        collection.upsert(documents=chunks, metadatas=metadatas, ids=ids)
+        collection.upsert(
+            documents=chunks,
+            embeddings=[_embed_text(chunk) for chunk in chunks],
+            metadatas=metadatas,
+            ids=ids,
+        )
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"Chroma upsert failed for bucket '{bucket_key}': {exc}") from exc
     return len(chunks)
@@ -84,7 +107,7 @@ def query(bucket: str, text: str, k: int = 5) -> List[Dict[str, Any]]:
     if collection is None:
         raise RuntimeError("Chroma is not available; cannot query knowledge sources")
     try:
-        res = collection.query(query_texts=[text], n_results=max(1, int(k)))
+        res = collection.query(query_embeddings=[_embed_text(text)], n_results=max(1, int(k)))
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"Chroma query failed for bucket '{bucket_key}': {exc}") from exc
 

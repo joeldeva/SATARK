@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Mic, Send, ShieldCheck } from 'lucide-react';
 import { Card, IntelligencePanel, ReasonPopover, SectionHeader, StatusChip, TrustBadge } from '../components/ui';
 import { seedData } from '../data/seed';
-import { submitAnswer, submitCollectionResponse, submitConsent } from '../lib/apiClient';
+import { getAssignments, getEnumerators, getSurvey, startIntelligenceSession, submitAnswer, submitCollectionResponse, submitConsent } from '../lib/apiClient';
 import { cn, trustLevelForScore } from '../lib/format';
 import { evaluateIntelligence, getOrderedQuestions, getQuestionText, initialIntelligence } from '../lib/intelligence';
 import { useAppStore } from '../store/appStore';
@@ -13,15 +15,19 @@ type ClientStep = 'language' | 'consent' | 'survey' | 'done';
 
 export function CollectionClient() {
   const { t } = useTranslation();
+  const params = useParams();
   const language = useAppStore((state) => state.language);
   const setLanguage = useAppStore((state) => state.setLanguage);
   const addLiveFlag = useAppStore((state) => state.addLiveFlag);
   const updateEnumeratorTrust = useAppStore((state) => state.updateEnumeratorTrust);
-  const enumerators = useAppStore((state) => state.enumerators);
+  const requestedSurveyId = params.surveyId || 'latest';
+  const useLatestAssignment = requestedSurveyId === 'latest';
+  const enumeratorQuery = useQuery({ queryKey: ['enumerators', 'collection'], queryFn: getEnumerators });
+  const enumerators = enumeratorQuery.data?.data.enumerators || [];
   const [step, setStep] = useState<ClientStep>('language');
   const [persona, setPersona] = useState<'genuine' | 'suspicious'>('genuine');
   const [speedMode, setSpeedMode] = useState<'normal' | 'too-fast'>('normal');
-  const [answers, setAnswers] = useState<Record<string, string>>({ name: seedData.households[0].prepop.name });
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [currentIndex, setCurrentIndex] = useState(0);
   const [draftValue, setDraftValue] = useState('');
   const [intelligence, setIntelligence] = useState<IntelligenceResult>(initialIntelligence);
@@ -30,15 +36,30 @@ export function CollectionClient() {
   const flagCreated = useRef(false);
 
   const personaData = seedData.personas[persona];
-  const enumerator = enumerators.find((item) => item.id === personaData.enumeratorId) || enumerators[0];
-  const orderedQuestions = useMemo(() => getOrderedQuestions(answers.occupation), [answers.occupation]);
+  const assignmentQuery = useQuery({
+    queryKey: ['collection-assignment', requestedSurveyId],
+    queryFn: () => getAssignments({ surveyId: useLatestAssignment ? undefined : requestedSurveyId, status: 'assigned' })
+  });
+  const assignment = assignmentQuery.data?.data.assignments[0] || null;
+  const activeSurveyId = assignment?.surveyId || (useLatestAssignment ? seedData.survey.id : requestedSurveyId);
+  const surveyQuery = useQuery({ queryKey: ['survey', activeSurveyId, 'collection'], queryFn: () => getSurvey(activeSurveyId), enabled: Boolean(activeSurveyId) });
+  const survey = surveyQuery.data?.data.survey || null;
+  const household = assignment?.household && assignment.householdId ? { id: assignment.householdId, prepop: assignment.household } : null;
+  const enumerator = enumerators.find((item) => item.id === assignment?.enumeratorId) || enumerators.find((item) => item.id === personaData.enumeratorId) || null;
+  const orderedQuestions = useMemo(() => (survey ? getOrderedQuestions(answers.occupation, survey) : []), [answers.occupation, survey]);
   const question = orderedQuestions[currentIndex];
-  const progress = Math.round(((currentIndex + 1) / orderedQuestions.length) * 100);
+  const progress = orderedQuestions.length ? Math.round(((currentIndex + 1) / orderedQuestions.length) * 100) : 0;
+
+  useEffect(() => {
+    if (household?.prepop.name && !answers.name) {
+      setAnswers((current) => ({ name: household.prepop.name, ...current }));
+    }
+  }, [answers.name, household?.prepop.name]);
 
   useEffect(() => {
     questionStartedAt.current = Date.now();
-    setDraftValue(question ? answers[question.id] || personaData.answers[question.id] || (question.prepop ? seedData.households[0].prepop.name : '') : '');
-  }, [currentIndex, persona, question?.id]);
+    setDraftValue(question ? answers[question.id] || personaData.answers[question.id] || (question.prepop ? household?.prepop.name || '' : '') : '');
+  }, [answers, currentIndex, household?.prepop.name, personaData.answers, question]);
 
   useEffect(() => {
     if (persona === 'suspicious') setSpeedMode('too-fast');
@@ -51,16 +72,24 @@ export function CollectionClient() {
 
   async function acceptConsent() {
     await submitConsent({
-      surveyId: seedData.survey.id,
-      householdId: seedData.households[0].id,
+      surveyId: activeSurveyId,
+      householdId: household?.id,
+      enumeratorId: enumerator?.id,
       language,
       timestamp: new Date().toISOString()
+    });
+    await startIntelligenceSession({
+      surveyId: activeSurveyId,
+      householdId: household?.id,
+      enumeratorId: enumerator?.id,
+      assignmentId: assignment?.id,
+      language
     });
     setStep('survey');
   }
 
   async function answerCurrent(value: string) {
-    if (!question) return;
+    if (!question || !enumerator || !survey) return;
     const elapsedSeconds =
       speedMode === 'too-fast'
         ? personaData.speedSeconds[Math.min(currentIndex, personaData.speedSeconds.length - 1)] || 4
@@ -94,7 +123,7 @@ export function CollectionClient() {
         id: `flag-${Date.now()}`,
         enumeratorId: enumerator.id,
         enumeratorName: enumerator.name,
-        survey: seedData.survey.title.en,
+        survey: survey.title.en,
         reason: evaluated.layers.find((layer) => layer.status === 'fail')?.reason || evaluated.reason,
         trustScore: nextTrust,
         trustLevel,
@@ -108,11 +137,17 @@ export function CollectionClient() {
       const storedResult = { ...evaluated, stored: true };
       setIntelligence(storedResult);
       const submitResult = await submitCollectionResponse({
-        surveyId: seedData.survey.id,
-        householdId: seedData.households[0].id,
+        surveyId: activeSurveyId,
+        householdId: household?.id,
         enumeratorId: enumerator.id,
+        assignmentId: assignment?.id,
         answers: nextAnswers,
+        prepopulated: household?.prepop || {},
         intelligence: storedResult,
+        speedMode,
+        elapsedSeconds,
+        durationSeconds: personaData.speedSeconds.reduce((sum, item) => sum + item, 0),
+        channel: 'collection-client',
         submittedAt: new Date().toISOString()
       });
       setSubmittedMessage(submitResult.data.queued ? 'Response queued for sync.' : 'Response stored successfully.');
@@ -121,13 +156,25 @@ export function CollectionClient() {
   }
 
   function currentDefault(questionItem: SurveyQuestion) {
-    return answers[questionItem.id] || personaData.answers[questionItem.id] || (questionItem.prepop ? seedData.households[0].prepop.name : '');
+    return answers[questionItem.id] || personaData.answers[questionItem.id] || (questionItem.prepop ? household?.prepop.name || '' : '');
+  }
+
+  if (!enumerator || !survey || assignmentQuery.isLoading || surveyQuery.isLoading) {
+    return <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600">Loading assigned collection context...</div>;
+  }
+
+  if (assignmentQuery.error || surveyQuery.error || !household) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-gov-red">
+        Could not load a persisted assignment, household, and survey for this collection flow. Publish a survey or create an assignment in FOD first.
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
       <SectionHeader
-        title={seedData.survey.title[language] || seedData.survey.title.en}
+        title={survey.title[language] || survey.title.en}
         eyebrow="Collection client"
         actions={
           <div className="flex flex-wrap gap-2">
@@ -142,7 +189,7 @@ export function CollectionClient() {
                 flagCreated.current = false;
                 setPersona(value);
                 setCurrentIndex(0);
-                setAnswers({ name: seedData.households[0].prepop.name });
+                setAnswers({ name: household.prepop.name });
                 setIntelligence(initialIntelligence);
               }}
             />
@@ -271,7 +318,7 @@ export function CollectionClient() {
               onClick={() => {
                 setStep('language');
                 setCurrentIndex(0);
-                setAnswers({ name: seedData.households[0].prepop.name });
+                setAnswers({ name: household.prepop.name });
                 setIntelligence(initialIntelligence);
                 setSubmittedMessage('');
                 flagCreated.current = false;
