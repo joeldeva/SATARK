@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from app.config import settings
 
@@ -24,8 +25,14 @@ def chroma_client():
     except Exception as exc:  # noqa: BLE001
         logger.warning("Chroma package unavailable: %s", exc)
         return None
-    os.makedirs(settings.CHROMA_DIR, exist_ok=True)
+    configured_url = (settings.CHROMA_URL or "").strip()
     try:
+        if configured_url:
+            parsed = urlparse(configured_url)
+            host = parsed.hostname or "127.0.0.1"
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            return chromadb.HttpClient(host=host, port=port, ssl=parsed.scheme == "https")
+        os.makedirs(settings.CHROMA_DIR, exist_ok=True)
         return chromadb.PersistentClient(path=settings.CHROMA_DIR)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Chroma client init failed: %s", exc)
@@ -113,6 +120,8 @@ def status() -> dict:
             buckets[bucket_key] = {"chroma_count": None}
     return {
         "enabled": enabled,
+        "mode": "http" if (settings.CHROMA_URL or "").strip() else "persistent",
+        "url": settings.CHROMA_URL if (settings.CHROMA_URL or "").strip() else None,
         "path": settings.CHROMA_DIR,
         "buckets": buckets,
         "needs_review": True,

@@ -1,8 +1,9 @@
 import logging
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -13,6 +14,7 @@ from api.rag_routes import router as rag_router, set_db_dependency as set_rag_db
 from api.event_routes import router as event_router
 from app.config import settings
 from app.database import SessionLocal, get_db, init_db
+from app.runtime_checks import assert_required_runtime, readiness
 from app.seed import seed_core_data
 from services.prompt_parser import PromptParser
 from services.rag_engine import RAGEngine
@@ -24,32 +26,14 @@ from utils.knowledge_loader import KnowledgeBaseLoader
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(
-    title=settings.APP_NAME,
-    version=settings.VERSION,
-    description="Deterministic survey intelligence platform",
-    docs_url="/docs",
-    redoc_url="/redoc",
-)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-app.include_router(router, prefix="/api")
-app.include_router(router, prefix="/api/v1")
-app.include_router(rag_router, prefix="/api")
-app.include_router(event_router, prefix="/api")
-
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     logger.info("Starting SATARK")
-    init_db()
+    if settings.DATABASE_URL.startswith("sqlite"):
+        init_db()
+    else:
+        assert_required_runtime()
     db = SessionLocal()
     try:
         seed_core_data(db, settings.PROJECT_ROOT)
@@ -77,6 +61,30 @@ async def startup():
     set_db_dependency(get_db)
     set_rag_db_dependency(get_db)
     logger.info("SATARK ready")
+    yield
+
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.VERSION,
+    description="Deterministic survey intelligence platform",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(router, prefix="/api")
+app.include_router(router, prefix="/api/v1")
+app.include_router(rag_router, prefix="/api")
+app.include_router(event_router, prefix="/api")
 
 
 @app.get("/")
@@ -93,6 +101,15 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy", "system": "SATARK", "version": settings.VERSION}
+
+
+@app.get("/health/ready")
+async def health_ready():
+    result = readiness()
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if result["ready"] else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=result,
+    )
 
 
 @app.exception_handler(Exception)

@@ -8,7 +8,22 @@ from app.intelligence.assist.rag.service import answer, classify_code
 from app.intelligence.assist.llm import generate as llm_generate  # noqa: F401  (signature check only)
 
 
-def test_rag_answer_carries_assist_envelope():
+def test_rag_answer_carries_assist_envelope(monkeypatch):
+    monkeypatch.setattr(
+        "app.intelligence.assist.rag.service.store_query",
+        lambda bucket, question, k: [
+            {
+                "id": "src-1",
+                "text": "Rural employment surveys should capture occupation and income.",
+                "metadata": {"source": "test"},
+                "score": 0.9,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        "app.intelligence.assist.rag.service.store_status",
+        lambda: {"enabled": True, "mode": "test", "buckets": {}},
+    )
     result = answer("what is rural employment?", bucket="survey_generation", k=3)
     assert result["is_verdict"] is False
     assert result["needs_review"] is True
@@ -16,7 +31,18 @@ def test_rag_answer_carries_assist_envelope():
     assert "bucket" in result
 
 
-def test_rag_classify_code_carries_assist_envelope():
+def test_rag_classify_code_carries_assist_envelope(monkeypatch):
+    monkeypatch.setattr(
+        "app.intelligence.assist.rag.service.store_query",
+        lambda bucket, question, k: [
+            {
+                "id": "code-1",
+                "text": "NCO 8322 taxi driver",
+                "metadata": {"code": "8322", "label": "Taxi driver", "type": "NCO"},
+                "score": 0.88,
+            }
+        ],
+    )
     result = classify_code(text="taxi driver", code_type="NCO", k=3)
     assert result["is_verdict"] is False
     assert result["needs_review"] is True
