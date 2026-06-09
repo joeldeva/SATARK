@@ -33,7 +33,7 @@ def _scopes_for(role: str, explicit_scopes: Optional[list[str]] = None) -> set[s
     return set(PERMISSIONS_BY_ROLE.get(role or "", set()))
 
 
-def _user_from_jwt(token: str) -> Optional[dict]:
+def user_from_token(token: str) -> Optional[dict]:
     payload = decode_token(token, settings.SECRET_KEY)
     if not payload:
         return None
@@ -56,7 +56,7 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> dic
             detail="Missing bearer token",
         )
     token = authorization.split(" ", 1)[1].strip()
-    user = _user_from_jwt(token)
+    user = user_from_token(token)
     if user:
         return user
     raise HTTPException(
