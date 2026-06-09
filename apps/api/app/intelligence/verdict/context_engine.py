@@ -1,10 +1,10 @@
 """
-Context engine — occupation → NIC sector lookup.
+Context engine: occupation to NIC sector lookup.
 
-CSV-backed plausibility matrix (occupation × income_band × age_band).
+CSV-backed plausibility matrix for occupation, income band, and age band.
 No DB round-trip in the hot path; the lookup table is loaded once at import.
 
-Replaces Neo4j for demo scale.  Extend via the CSV in data/seed/.
+Designed for low-latency verdict checks. Extend via the CSV in data/seed/.
 """
 from __future__ import annotations
 
@@ -12,8 +12,7 @@ import csv
 from functools import lru_cache
 from pathlib import Path
 
-# ── Inline plausibility matrix (demo seed; extended via CSV) ──────────────────
-# Maps (occupation_group, income_band, age_band) → plausible: bool
+# Inline plausibility matrix; maps (occupation_group, income_band, age_band) to plausible.
 _PLAUSIBILITY: dict[tuple[str, str, str], bool] = {
     # occupation_group, income_band,  age_band
     ("student",      "zero",   "teen"):   True,

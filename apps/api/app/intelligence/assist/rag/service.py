@@ -1,4 +1,4 @@
-"""RAG service: retrieval -> reranker -> (optional) LLM, always assist-only.
+"""RAG service: retrieval -> reranker -> local summary, always assist-only.
 
 Every output carries ``is_verdict=False`` and ``needs_review=True``. This module
 is the assist surface for ``POST /api/rag/query`` and the bucket-scoped grounded
@@ -62,9 +62,8 @@ def answer(question: str, bucket: str = "general", k: int = 5) -> Dict[str, Any]
         for hit in hits
     ]
 
-    # Compose a grounded summary from top sources. The LLM step is optional
-    # (kept here for explainability) — even without it the response is useful
-    # and contract-conformant.
+    # Compose a grounded summary from top sources. If Chroma is down,
+    # store_query raises and the API returns 503.
     summary = ""
     if hits:
         joined = "\n---\n".join(hit.get("text") or "" for hit in hits[:3])
@@ -116,11 +115,7 @@ def _snippet(text: str, max_chars: int = 240) -> str:
 
 
 def _summarize_locally(question: str, joined: str) -> str:
-    """Tiny extractive summary — return the first sentence per top source.
-
-    Avoids requiring the LLM to be online for the contract to hold. The LLM
-    can post-process this if available, but assist-grade output ships without.
-    """
+    """Tiny extractive summary: return the first sentence per top source."""
     sentences = re.split(r"(?<=[.!?])\s+", joined.strip())
     picks: list[str] = []
     seen: set[str] = set()

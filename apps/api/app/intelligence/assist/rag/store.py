@@ -75,12 +75,11 @@ def query(bucket: str, text: str, k: int = 5) -> List[Dict[str, Any]]:
     bucket_key = _bucket_name(bucket)
     collection = get_collection(bucket_key)
     if collection is None:
-        return []
+        raise RuntimeError("Chroma is not available; cannot query knowledge sources")
     try:
         res = collection.query(query_texts=[text], n_results=max(1, int(k)))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Chroma query failed (%s): %s", bucket_key, exc)
-        return []
+        raise RuntimeError(f"Chroma query failed for bucket '{bucket_key}': {exc}") from exc
 
     docs = (res.get("documents") or [[]])[0]
     metas = (res.get("metadatas") or [[]])[0] or [{}] * len(docs)

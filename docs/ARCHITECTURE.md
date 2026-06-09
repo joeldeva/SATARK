@@ -16,7 +16,7 @@ SATARK has one active backend, one active frontend, and shared data resources.
 - keyword retrieval from trusted local question sources
 - bootstrap data from `data/bootstrap_seed.json`
 
-Chroma is required for RAG ingest/query storage. If Chroma is unavailable, ingest fails visibly and query responses report no sources instead of using an in-memory substitute.
+Chroma is required for RAG ingest/query storage. If Chroma is unavailable, ingest and query calls fail visibly instead of using a substitute store.
 
 ## Frontend
 

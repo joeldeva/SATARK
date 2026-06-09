@@ -1,4 +1,4 @@
-"""survey_service create -> update -> publish round-trip on an in-memory SQLite DB."""
+"""survey_service create -> update -> publish round-trip on a SQLite test database."""
 
 import sys
 from pathlib import Path

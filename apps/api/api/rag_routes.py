@@ -51,7 +51,10 @@ async def rag_query(request: Dict[str, Any]):
     k = int(request.get("k") or 5)
     if not question:
         raise HTTPException(status_code=400, detail="question is required")
-    result = answer(question=question, bucket=bucket, k=k)
+    try:
+        result = answer(question=question, bucket=bucket, k=k)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     # Ensure top-level contract flags regardless of inner shape
     result["is_verdict"] = False
     result["needs_review"] = True
@@ -78,26 +81,26 @@ async def rag_ingest(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    # Persist KB source row (best-effort — don't fail ingest on DB error).
-    try:
-        from models.survey import KnowledgeSource
+    # Persist KB source row; ingest is incomplete unless metadata is recorded.
+    from models.survey import KnowledgeSource
 
-        db = _open_db()
-        try:
-            db.add(KnowledgeSource(
-                bucket=info["bucket"],
-                filename=info["filename"],
-                mime_type=file.content_type,
-                byte_size=info["byte_size"],
-                chunk_count=info["chunk_count"],
-                uploaded_by=user.get("username"),
-                sha256=info["sha256"],
-            ))
-            db.commit()
-        finally:
-            db.close()
+    db = _open_db()
+    try:
+        db.add(KnowledgeSource(
+            bucket=info["bucket"],
+            filename=info["filename"],
+            mime_type=file.content_type,
+            byte_size=info["byte_size"],
+            chunk_count=info["chunk_count"],
+            uploaded_by=user.get("username"),
+            sha256=info["sha256"],
+        ))
+        db.commit()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("knowledge_sources insert skipped: %s", exc)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Knowledge source metadata insert failed: {exc}") from exc
+    finally:
+        db.close()
 
     return {
         **info,

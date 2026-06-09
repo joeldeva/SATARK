@@ -78,27 +78,6 @@ class KnowledgeSource(Base):
     sha256 = Column(String(64), index=True)
 
 
-class SurveyResponse(Base):
-    __tablename__ = "survey_responses"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    survey_id = Column(String, nullable=False, index=True)
-    respondent_id = Column(String, index=True)
-    responses = Column(JSON, nullable=False)
-    coded_responses = Column(JSON)
-    submitted_at = Column(DateTime(timezone=True), server_default=func.now())
-    channel = Column(String(50), default="web")
-    duration_seconds = Column(Integer)
-    quality_score = Column(Integer)
-    state = Column(String(100), index=True)
-    district = Column(String(100), index=True)
-    agent_id = Column(String(100), index=True)
-    gps_latitude = Column(String(20))
-    gps_longitude = Column(String(20))
-    is_validated = Column(Boolean, default=False)
-    validation_flags = Column(JSON)
-
-
 class GenerationLog(Base):
     __tablename__ = "generation_logs"
 
