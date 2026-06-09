@@ -6,7 +6,7 @@ SATARK has one active backend, one active frontend, and shared data resources.
 
 `apps/api` exposes a FastAPI app with:
 
-- `/api` role-based demo auth
+- `/api` JWT auth backed by persisted users and role scopes
 - `/api` survey, question bank, code library, enumerator, analytics, coding, consent, prepopulate, intelligence, export, and response endpoints
 - `/api/v1` compatibility routes for the earlier generator endpoints
 - local Ollama Gemma assist planning with `gemma2:2b`
@@ -14,9 +14,9 @@ SATARK has one active backend, one active frontend, and shared data resources.
 - Redis event publishing after persisted verdicts for `response.scored`, `flag.created`, and `trust.updated`
 - deterministic parser available only when `LLM_PROVIDER=none`
 - keyword retrieval from trusted local question sources
-- shared seed data from `data/demo_seed.json`
+- bootstrap data from `data/bootstrap_seed.json`
 
-The optional vector-search dependencies are not required. If `sentence_transformers` and `chromadb` are installed, retrieval can use vector mode; otherwise the keyword retriever is used.
+Chroma is required for RAG ingest/query storage. If Chroma is unavailable, ingest fails visibly and query responses report no sources instead of using an in-memory substitute.
 
 ## Frontend
 
@@ -27,13 +27,13 @@ The optional vector-search dependencies are not required. If `sentence_transform
 - official-style SATARK app shell with language, color-blind mode, font size controls, sync status, and workspace badge
 - SDRD survey builder, FOD field operations, DPD coding/validation, SCD command center, and collection client
 - PWA manifest, service worker, and IndexedDB offline queue
-- seed fallback for every API call
+- API calls are expected to use the backend contract; client-side offline queuing is limited to collection workflows
 
 The frontend uses `VITE_API_URL` and defaults to `/api`. During local Vite development, `/api` is proxied to `http://127.0.0.1:8001`.
 
 ## Data And Infra
 
-`data/demo_seed.json` is the role-based product demo source. `data/question_bank/question_bank.json` and `data/knowledge_base` remain the trusted generation and knowledge sources.
+`data/bootstrap_seed.json` is the initial bootstrap source for local users, roles, survey, enumerators, households, validation rules, reference distributions, and codes. `data/question_bank/question_bank.json` and `data/knowledge_base` remain the trusted generation and knowledge sources.
 
 Local infrastructure is defined in `docker-compose.yml`:
 
@@ -41,7 +41,7 @@ Local infrastructure is defined in `docker-compose.yml`:
 - Redis 7 for verdict/event streams
 - Chroma for the later assist/RAG lane
 
-SQLite remains a developer fallback when `DATABASE_URL` is not pointed at Postgres, but migrations are authored for a fresh Postgres schema with native UUID and JSONB types.
+Postgres is the runtime database. SQLite is used only inside tests through `tests/conftest.py`.
 
 ## Local LLM Boundary
 

@@ -7,46 +7,40 @@ from typing import Any
 from models.platform import EnumeratorProfile, Response
 
 
-def enumerators_payload(db, seed: dict[str, Any]) -> list[dict[str, Any]]:
+def enumerators_payload(db) -> list[dict[str, Any]]:
     rows = db.query(EnumeratorProfile).order_by(EnumeratorProfile.id.asc()).all()
-    if not rows:
-        return seed["enumerators"]
     return [_enumerator_to_api(row) for row in rows]
 
 
-def enumerator_payload(db, seed: dict[str, Any], enumerator_id: str) -> dict[str, Any] | None:
+def enumerator_payload(db, enumerator_id: str) -> dict[str, Any] | None:
     row = db.get(EnumeratorProfile, enumerator_id)
-    if row:
-        return _enumerator_to_api(row)
-    return next((item for item in seed["enumerators"] if item["id"] == enumerator_id), None)
+    return _enumerator_to_api(row) if row else None
 
 
-def analytics_snapshot(db, seed_snapshot: dict[str, Any], seed: dict[str, Any]) -> dict[str, Any]:
+def analytics_snapshot(db) -> dict[str, Any]:
     responses = db.query(Response).order_by(Response.created_at.asc()).all()
-    if not responses:
-        return seed_snapshot
-
-    enumerators = enumerators_payload(db, seed)
+    enumerators = enumerators_payload(db)
     total = len(responses)
     flagged = sum(1 for row in responses if row.status == "flagged" or row.trust_level == "Red")
     confidences = [row.confidence_score or 0 for row in responses]
     green = sum(1 for row in responses if row.trust_level == "Green")
+    average_confidence = round(sum(confidences) / total, 1) if total else 0
 
     return {
         "responsesToday": total,
         "flagged": flagged,
-        "averageConfidence": round(sum(confidences) / total, 1) if total else 0,
+        "averageConfidence": average_confidence,
         "activeEnumerators": len(enumerators),
         "totalResponses": total,
         "validatedRate": round(green / total * 100, 1) if total else 0,
         "errorRate": round(flagged / total * 100, 1) if total else 0,
-        "ruralUrban": seed_snapshot["ruralUrban"],
-        "genderRatio": seed_snapshot["genderRatio"],
-        "confidenceScore": round(sum(confidences) / total, 1) if total else 0,
-        "stateValidation": _state_validation(seed_snapshot, responses),
+        "ruralUrban": _rural_urban(responses),
+        "genderRatio": _gender_ratio(responses),
+        "confidenceScore": average_confidence,
+        "stateValidation": _state_validation(responses),
         "enumeratorRanking": _enumerator_ranking(enumerators, responses),
         "responseTrend": _response_trend(responses),
-        "sectorDistribution": seed_snapshot["sectorDistribution"],
+        "sectorDistribution": _sector_distribution(responses),
         "confidenceDistribution": _confidence_distribution(confidences),
     }
 
@@ -108,17 +102,36 @@ def _confidence_distribution(confidences: list[float]) -> list[dict[str, Any]]:
     return [{"bucket": label, "count": sum(1 for value in confidences if check(value))} for label, check in buckets]
 
 
-def _state_validation(seed_snapshot: dict[str, Any], responses: list[Response]) -> list[dict[str, Any]]:
-    base = list(seed_snapshot["stateValidation"])
-    if not responses:
-        return base
-    green = sum(1 for row in responses if row.trust_level == "Green")
-    tn_rate = round(green / len(responses) * 100, 1)
-    for item in base:
-        if item["state"] == "Tamil Nadu":
-            item["rate"] = tn_rate
-            return base
-    return [*base, {"state": "Tamil Nadu", "rate": tn_rate}]
+def _state_validation(responses: list[Response]) -> list[dict[str, Any]]:
+    by_state: dict[str, list[Response]] = defaultdict(list)
+    for row in responses:
+        state = (row.prepopulated or {}).get("state") or (row.answers or {}).get("state") or "Unknown"
+        by_state[str(state)].append(row)
+    out = []
+    for state, rows in sorted(by_state.items()):
+        green = sum(1 for row in rows if row.trust_level == "Green")
+        out.append({"state": state, "rate": round(green / len(rows) * 100, 1) if rows else 0})
+    return out
+
+
+def _sector_distribution(responses: list[Response]) -> list[dict[str, Any]]:
+    counts = Counter(str((row.answers or {}).get("occupation") or "Unspecified") for row in responses)
+    return [{"sector": key, "value": value} for key, value in counts.most_common()]
+
+
+def _gender_ratio(responses: list[Response]) -> dict[str, int]:
+    counts = Counter(str((row.answers or {}).get("gender") or "").lower() for row in responses)
+    return {"male": counts["male"] + counts["m"], "female": counts["female"] + counts["f"]}
+
+
+def _rural_urban(responses: list[Response]) -> tuple[float, float]:
+    counts = Counter(str((row.answers or {}).get("location") or (row.answers or {}).get("area") or "").lower() for row in responses)
+    rural = counts["rural"]
+    urban = counts["urban"]
+    total = rural + urban
+    if not total:
+        return (0, 0)
+    return (round(rural / total * 100, 1), round(urban / total * 100, 1))
 
 
 def _label(value: datetime | None) -> str:

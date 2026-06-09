@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
 
-    DATABASE_URL: str = f"sqlite:///{(PROJECT_ROOT / 'data' / 'satark.db').as_posix()}"
+    DATABASE_URL: str = "postgresql+psycopg://satark:satark@127.0.0.1:5432/satark"
 
     SECRET_KEY: str = "dev-secret-key-change-in-production"
     ALGORITHM: str = "HS256"

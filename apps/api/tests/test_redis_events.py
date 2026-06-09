@@ -33,7 +33,6 @@ def test_suspicious_response_emits_flag_created_after_persistence():
                 "speedMode": "too-fast",
                 "elapsedSeconds": 4,
             },
-            {"id": "emp-2026", "title": {"en": "Household Employment Survey"}},
             event_publisher=fake_publisher,
         )
 

@@ -28,7 +28,7 @@ def test_collection_response_persists_verdict_rows():
                 "speedMode": "too-fast",
                 "elapsedSeconds": 4,
             },
-            {"id": "emp-2026", "title": {"en": "Household Employment Survey"}},
+            event_publisher=lambda events, payload: events,
         )
 
         response_id = result["responseId"]

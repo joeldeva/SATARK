@@ -3,16 +3,20 @@ import logging
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.auth.jwt import encode_token
+from app.auth.password import verify_password
+from app.auth.rbac import PERMISSIONS_BY_ROLE, get_current_user, require_scope
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _generator = None
 _get_db = None
-_seed_cache: dict[str, Any] | None = None
 
 
 def set_generator(generator):
@@ -31,81 +35,125 @@ def _open_db():
     return next(_get_db())
 
 
-def _seed() -> dict[str, Any]:
-    global _seed_cache
-    if _seed_cache is None:
-        seed_path = Path(__file__).resolve().parents[3] / "data" / "demo_seed.json"
-        with seed_path.open("r", encoding="utf-8") as handle:
-            _seed_cache = json.load(handle)
-    return _seed_cache
-
-
 def _question_bank() -> list[dict[str, Any]]:
-    return [node for node in _seed()["survey"]["nodes"] if node.get("type") != "adaptive"]
-
-
-def _seed_survey() -> dict[str, Any]:
-    return _seed()["survey"]
-
-
-def _user_without_password(user: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in user.items() if key != "password"}
+    path = Path(__file__).resolve().parents[3] / "data" / "question_bank" / "question_bank.json"
+    with path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    return data.get("questions", data if isinstance(data, list) else [])
 
 
 @router.post("/auth/login")
 async def login(request: Dict[str, Any]):
+    from models.platform import PlatformUser
+
     username = str(request.get("username", "")).strip()
     password = str(request.get("password", ""))
-    for user in _seed()["users"]:
-        if user["username"] == username and user["password"] == password:
-            return {"user": _user_without_password(user), "token": f"local-{username}-{int(time.time())}"}
+    if not username or not password:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    db = _open_db()
+    try:
+        row = db.query(PlatformUser).filter(PlatformUser.username == username).first()
+        if row and row.is_active and verify_password(password, row.password_hash):
+            scopes = sorted(PERMISSIONS_BY_ROLE.get(row.role, set()))
+            token = encode_token(
+                {
+                    "sub": row.username,
+                    "role": row.role,
+                    "name": row.name,
+                    "scopes": scopes,
+                },
+                secret=settings.SECRET_KEY,
+            )
+            return {
+                "user": {"username": row.username, "role": row.role, "name": row.name},
+                "token": token,
+                "scopes": scopes,
+            }
+    finally:
+        db.close()
+
     raise HTTPException(status_code=401, detail="Invalid username or password")
 
 
-@router.get("/surveys")
-async def list_surveys():
+@router.get("/auth/me")
+async def auth_me(user: dict = Depends(get_current_user)):
+    return {
+        "user": {"username": user["username"], "role": user["role"], "name": user.get("name", "")},
+        "scopes": sorted(user["scopes"]),
+        "source": user.get("source", "jwt"),
+    }
+
+
+@router.get("/surveys", dependencies=[Depends(require_scope("survey:read"))])
+async def list_surveys(status: str | None = Query(default=None), owner: str | None = Query(default=None)):
     from models.survey import Survey
 
     db = _open_db()
     try:
-        _ensure_seed_survey(db)
-        rows = db.query(Survey).order_by(Survey.created_at.desc()).limit(100).all()
+        query = db.query(Survey).order_by(Survey.created_at.desc())
+        if status:
+            query = query.filter(Survey.status == status)
+        if owner:
+            query = query.filter(Survey.created_by == owner)
+        rows = query.limit(200).all()
         surveys = []
         for row in rows:
-            if row.survey_id == _seed_survey()["id"]:
-                surveys.append(_seed_survey())
-            else:
-                surveys.append(row.survey_data)
+            surveys.append(_survey_row_to_dict(row))
         return {"surveys": surveys}
     finally:
         db.close()
 
 
-@router.post("/surveys/generate")
-async def generate_seed_survey(request: Dict[str, Any]):
+def _survey_row_to_dict(row) -> Dict[str, Any]:
+    """Serialize a Survey row, preferring question_graph (SDRD JSONB) when present."""
+    graph = row.question_graph
+    if graph:
+        base = dict(graph)
+        base.setdefault("id", row.survey_id)
+        base["status"] = row.status
+        base["version"] = row.version
+        return base
+    data = dict(row.survey_data or {})
+    data.setdefault("id", row.survey_id)
+    data["status"] = row.status
+    data["version"] = row.version
+    return data
+
+
+@router.post("/surveys/generate", dependencies=[Depends(require_scope("survey:write"))])
+async def generate_seed_survey(request: Dict[str, Any], user: dict = Depends(get_current_user)):
     if not _generator:
         raise HTTPException(status_code=503, detail="Survey generator not initialized")
 
     prompt = str(request.get("prompt", "")).strip()
-    user_id = request.get("user_id") or "sdrd"
+    user_id = request.get("user_id") or user.get("username") or "sdrd"
     if len(prompt) < 10:
         raise HTTPException(status_code=400, detail="Prompt must be at least 10 characters")
+    start = time.time()
     generated = _generator.generate(prompt, user_id)
-    _save_generation(generated, prompt, user_id, 0)
+    elapsed = round(time.time() - start, 3)
+    # Log-only â€” DO NOT create a Survey row. The draft lives in the FE builderStore
+    # until the officer explicitly POSTs /api/surveys or PATCHes one (contract).
+    _log_generation_only(generated, prompt, user_id, elapsed)
     return {
         "survey": _generated_to_designer_survey(generated),
         "generated": generated,
         "note": "Draft generated by local Gemma assist and trusted SATARK rules - review before publishing",
+        "is_verdict": False,
+        "needs_review": True,
+        "sources": (generated.get("metadata") or {}).get("engine_trace", []),
+        "confidence": (generated.get("metadata") or {}).get("llm", {}).get("confidence"),
     }
 
 
-@router.post("/generate")
-async def generate_survey(request: Dict[str, Any]):
+@router.post("/generate", dependencies=[Depends(require_scope("survey:write"))])
+async def generate_survey(request: Dict[str, Any], user: dict = Depends(get_current_user)):
     if not _generator:
         raise HTTPException(status_code=503, detail="Survey generator not initialized")
 
     prompt = str(request.get("prompt", "")).strip()
-    user_id = request.get("user_id") or "system"
+    user_id = request.get("user_id") or user.get("username") or "system"
 
     if len(prompt) < 10:
         raise HTTPException(status_code=400, detail="Prompt must be at least 10 characters")
@@ -121,34 +169,202 @@ async def generate_survey(request: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/surveys/{survey_id}")
+@router.get("/surveys/{survey_id}", dependencies=[Depends(require_scope("survey:read"))])
 async def get_survey(survey_id: str):
     from models.survey import Survey
-
-    if survey_id == _seed_survey()["id"]:
-        return {"survey": _seed_survey()}
 
     db = _open_db()
     try:
         survey = db.query(Survey).filter(Survey.survey_id == survey_id).first()
         if not survey:
             raise HTTPException(status_code=404, detail="Survey not found")
-        return {"survey": survey.survey_data}
+        return {"survey": _survey_row_to_dict(survey)}
     finally:
         db.close()
 
 
-@router.get("/question-bank")
+@router.post("/surveys", dependencies=[Depends(require_scope("survey:write"))])
+async def create_survey_endpoint(request: Dict[str, Any], user: dict = Depends(get_current_user)):
+    from app.services.survey_service import create_survey
+
+    db = _open_db()
+    try:
+        row = create_survey(db, request, user.get("username") or "sdrd")
+        return {"survey": _survey_row_to_dict(row)}
+    finally:
+        db.close()
+
+
+@router.patch("/surveys/{survey_id}", dependencies=[Depends(require_scope("survey:write"))])
+async def update_survey_endpoint(survey_id: str, request: Dict[str, Any]):
+    from app.services.survey_service import update_survey
+
+    db = _open_db()
+    try:
+        row = update_survey(db, survey_id, request)
+        return {"survey": _survey_row_to_dict(row)}
+    finally:
+        db.close()
+
+
+@router.post("/surveys/{survey_id}/publish", dependencies=[Depends(require_scope("survey:write"))])
+async def publish_survey_endpoint(survey_id: str, user: dict = Depends(get_current_user)):
+    from app.services.survey_service import publish_survey
+    from services.events import publish as publish_event
+
+    db = _open_db()
+    try:
+        result = publish_survey(db, survey_id, user.get("username") or "sdrd")
+    finally:
+        db.close()
+
+    publish_event("survey.published", {
+        "survey_id": survey_id,
+        "version": result["version"],
+        "published_by": user.get("username"),
+    })
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Validation rules
+# ---------------------------------------------------------------------------
+
+@router.get("/validation-rules", dependencies=[Depends(require_scope("survey:read"))])
+async def list_validation_rules_endpoint(survey_id: str | None = Query(default=None)):
+    from app.services.validation_service import list_validation_rules
+
+    db = _open_db()
+    try:
+        return {"rules": list_validation_rules(db, survey_id)}
+    finally:
+        db.close()
+
+
+@router.post("/validation-rules", dependencies=[Depends(require_scope("survey:write"))])
+async def create_validation_rule_endpoint(request: Dict[str, Any]):
+    from app.services.validation_service import create_validation_rule
+
+    db = _open_db()
+    try:
+        return {"rule": create_validation_rule(db, request)}
+    finally:
+        db.close()
+
+
+@router.patch("/validation-rules/{rule_id}", dependencies=[Depends(require_scope("survey:write"))])
+async def update_validation_rule_endpoint(rule_id: str, request: Dict[str, Any]):
+    from app.services.validation_service import update_validation_rule
+
+    db = _open_db()
+    try:
+        return {"rule": update_validation_rule(db, rule_id, request)}
+    finally:
+        db.close()
+
+
+@router.delete("/validation-rules/{rule_id}", dependencies=[Depends(require_scope("survey:write"))])
+async def delete_validation_rule_endpoint(rule_id: str):
+    from app.services.validation_service import delete_validation_rule
+
+    db = _open_db()
+    try:
+        return delete_validation_rule(db, rule_id)
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Adaptive logic
+# ---------------------------------------------------------------------------
+
+@router.get("/adaptive-logic", dependencies=[Depends(require_scope("survey:read"))])
+async def list_adaptive_logic_endpoint(survey_id: str | None = Query(default=None)):
+    from app.services.validation_service import list_adaptive_logic
+
+    db = _open_db()
+    try:
+        return {"rules": list_adaptive_logic(db, survey_id)}
+    finally:
+        db.close()
+
+
+@router.post("/adaptive-logic", dependencies=[Depends(require_scope("survey:write"))])
+async def create_adaptive_logic_endpoint(request: Dict[str, Any]):
+    from app.services.validation_service import create_adaptive_logic
+
+    db = _open_db()
+    try:
+        return {"rule": create_adaptive_logic(db, request)}
+    finally:
+        db.close()
+
+
+@router.patch("/adaptive-logic/{rule_id}", dependencies=[Depends(require_scope("survey:write"))])
+async def update_adaptive_logic_endpoint(rule_id: str, request: Dict[str, Any]):
+    from app.services.validation_service import update_adaptive_logic
+
+    db = _open_db()
+    try:
+        return {"rule": update_adaptive_logic(db, rule_id, request)}
+    finally:
+        db.close()
+
+
+@router.delete("/adaptive-logic/{rule_id}", dependencies=[Depends(require_scope("survey:write"))])
+async def delete_adaptive_logic_endpoint(rule_id: str):
+    from app.services.validation_service import delete_adaptive_logic
+
+    db = _open_db()
+    try:
+        return delete_adaptive_logic(db, rule_id)
+    finally:
+        db.close()
+
+
+@router.get("/question-bank", dependencies=[Depends(require_scope("survey:read"))])
 async def question_bank():
     return {"questions": _question_bank()}
 
 
-@router.get("/codes")
-async def codes():
-    return {"codes": _seed()["codes"]}
+@router.get("/codes", dependencies=[Depends(require_scope("survey:read"))])
+async def codes(
+    type: str | None = Query(default=None, alias="type"),
+    q: str | None = Query(default=None),
+):
+    from models.platform import ClassificationCode
+
+    db = _open_db()
+    try:
+        query = db.query(ClassificationCode)
+        if type:
+            query = query.filter(ClassificationCode.code_type == type.upper())
+        rows = query.limit(500).all()
+        results = [
+            {
+                "code": r.code,
+                "type": r.code_type,
+                "label": r.label,
+                "synonyms": r.synonyms or [],
+                "externalSource": r.external_source,
+            }
+            for r in rows
+        ]
+        if q:
+            needle = q.lower()
+            results = [
+                c
+                for c in results
+                if needle in c.get("label", "").lower()
+                or needle in c.get("code", "").lower()
+                or any(needle in str(s).lower() for s in c.get("synonyms", []) or [])
+            ]
+        return {"codes": results}
+    finally:
+        db.close()
 
 
-@router.get("/llm/status")
+@router.get("/llm/status", dependencies=[Depends(require_scope("survey:read"))])
 async def llm_status():
     if not _generator or not getattr(_generator, "llm_planner", None):
         return {"enabled": False, "provider": "none"}
@@ -163,24 +379,30 @@ async def llm_status():
     }
 
 
-@router.post("/consent")
+@router.post("/consent", dependencies=[Depends(require_scope("collect:write"))])
 async def consent(request: Dict[str, Any]):
     return {"ok": True, "consentId": f"consent-{int(time.time() * 1000)}", "received": request}
 
 
-@router.post("/prepopulate")
+@router.post("/prepopulate", dependencies=[Depends(require_scope("collect:write"))])
 async def prepopulate(request: Dict[str, Any]):
+    from models.platform import Household
+
     household_id = request.get("householdId") or request.get("household_id")
-    household = next((item for item in _seed()["households"] if item["id"] == household_id), None)
-    return {"household": household}
+    db = _open_db()
+    try:
+        household = db.get(Household, household_id) if household_id else None
+        return {"household": None if not household else {"id": household.id, "prepop": household.prepopulated}}
+    finally:
+        db.close()
 
 
-@router.post("/intelligence/sessions")
+@router.post("/intelligence/sessions", dependencies=[Depends(require_scope("collect:write"))])
 async def intelligence_session(request: Dict[str, Any]):
     return {"sessionId": f"session-{int(time.time() * 1000)}", "surveyId": request.get("surveyId")}
 
 
-@router.post("/intelligence/answer")
+@router.post("/intelligence/answer", dependencies=[Depends(require_scope("collect:write"))])
 async def intelligence_answer(request: Dict[str, Any]):
     return _evaluate_intelligence(
         answers=request.get("answers") or {},
@@ -191,28 +413,24 @@ async def intelligence_answer(request: Dict[str, Any]):
     )
 
 
-@router.post("/responses")
+@router.post("/responses", dependencies=[Depends(require_scope("collect:write"))])
 async def submit_collection_response(request: Dict[str, Any]):
     from services.response_service import store_collection_response
 
     db = _open_db()
     try:
-        _ensure_seed_survey(db)
-        return store_collection_response(db, request, _seed_survey())
+        return store_collection_response(db, request)
     finally:
         db.close()
 
 
-@router.post("/surveys/{survey_id}/responses")
+@router.post("/surveys/{survey_id}/responses", dependencies=[Depends(require_scope("collect:write"))])
 async def submit_response(survey_id: str, request: Dict[str, Any]):
     from models.survey import Survey, SurveyResponse
 
     db = _open_db()
     try:
         survey = db.query(Survey).filter(Survey.survey_id == survey_id).first()
-        if not survey and survey_id == _seed_survey()["id"]:
-            _ensure_seed_survey(db)
-            survey = db.query(Survey).filter(Survey.survey_id == survey_id).first()
         if not survey:
             raise HTTPException(status_code=404, detail="Survey not found")
 
@@ -250,20 +468,18 @@ async def submit_response(survey_id: str, request: Dict[str, Any]):
         db.close()
 
 
-@router.get("/responses")
+@router.get("/responses", dependencies=[Depends(require_scope("validation:review"))])
 async def responses(status: str | None = Query(default=None)):
     from services.response_service import flagged_responses
 
     db = _open_db()
     try:
-        if status == "flagged":
-            return {"responses": flagged_responses(db, _seed_flags(), _seed_survey())}
-        return {"responses": flagged_responses(db, _seed_flags(), _seed_survey())}
+        return {"responses": flagged_responses(db, status=status)}
     finally:
         db.close()
 
 
-@router.get("/responses/{response_id}")
+@router.get("/responses/{response_id}", dependencies=[Depends(require_scope("validation:review"))])
 async def response_detail(response_id: str):
     from services.response_service import response_detail as load_response_detail
 
@@ -277,35 +493,61 @@ async def response_detail(response_id: str):
         db.close()
 
 
-@router.post("/coding")
+@router.post("/coding", dependencies=[Depends(require_scope("survey:read"))])
 async def coding(request: Dict[str, Any]):
+    from models.platform import ClassificationCode
+
     raw_response = str(request.get("rawResponse") or request.get("raw_response") or "")
-    return {"suggestion": _find_code_suggestion(raw_response)}
+    needle = raw_response.strip().lower()
+    suggestion = None
+    if needle:
+        db = _open_db()
+        try:
+            rows = db.query(ClassificationCode).limit(500).all()
+            for row in rows:
+                haystack = " ".join([row.label or "", row.code or ""] + list(row.synonyms or [])).lower()
+                if needle in haystack:
+                    suggestion = {
+                        "code": row.code,
+                        "type": row.code_type,
+                        "label": row.label,
+                        "confidence": 93,
+                        "source": row.external_source or "classification_codes",
+                        "reason": f"Matched persisted {row.code_type} code {row.code}",
+                    }
+                    break
+        finally:
+            db.close()
+    return {
+        "suggestion": suggestion,
+        "is_verdict": False,
+        "needs_review": True,
+    }
 
 
-@router.post("/coding/review")
+@router.post("/coding/review", dependencies=[Depends(require_scope("coding:review"))])
 async def coding_review(request: Dict[str, Any]):
     return {"ok": True, "review": request}
 
 
-@router.get("/enumerators")
+@router.get("/enumerators", dependencies=[Depends(require_scope("dashboard:view"))])
 async def enumerators():
     from services.dashboard_data import enumerators_payload
 
     db = _open_db()
     try:
-        return {"enumerators": enumerators_payload(db, _seed())}
+        return {"enumerators": enumerators_payload(db)}
     finally:
         db.close()
 
 
-@router.get("/enumerators/{enumerator_id}")
+@router.get("/enumerators/{enumerator_id}", dependencies=[Depends(require_scope("dashboard:view"))])
 async def enumerator(enumerator_id: str):
     from services.dashboard_data import enumerator_payload
 
     db = _open_db()
     try:
-        item = enumerator_payload(db, _seed(), enumerator_id)
+        item = enumerator_payload(db, enumerator_id)
     finally:
         db.close()
     if not item:
@@ -313,23 +555,23 @@ async def enumerator(enumerator_id: str):
     return {"enumerator": item}
 
 
-@router.post("/actions")
+@router.post("/actions", dependencies=[Depends(require_scope("dashboard:view"))])
 async def actions(request: Dict[str, Any]):
     return {"ok": True, "action": request}
 
 
-@router.get("/analytics")
+@router.get("/analytics", dependencies=[Depends(require_scope("dashboard:view"))])
 async def analytics():
     from services.dashboard_data import analytics_snapshot
 
     db = _open_db()
     try:
-        return analytics_snapshot(db, _analytics_snapshot(), _seed())
+        return analytics_snapshot(db)
     finally:
         db.close()
 
 
-@router.get("/analytics/summary")
+@router.get("/analytics/summary", dependencies=[Depends(require_scope("dashboard:view"))])
 async def analytics_summary():
     from models.survey import Survey, SurveyResponse
 
@@ -355,7 +597,7 @@ async def analytics_summary():
         db.close()
 
 
-@router.get("/analytics/timeseries")
+@router.get("/analytics/timeseries", dependencies=[Depends(require_scope("dashboard:view"))])
 async def analytics_timeseries():
     from models.survey import SurveyResponse
 
@@ -371,7 +613,7 @@ async def analytics_timeseries():
         db.close()
 
 
-@router.get("/analytics/agents")
+@router.get("/analytics/agents", dependencies=[Depends(require_scope("dashboard:view"))])
 async def analytics_agents():
     from models.survey import SurveyResponse
 
@@ -398,7 +640,7 @@ async def analytics_agents():
         db.close()
 
 
-@router.post("/export")
+@router.post("/export", dependencies=[Depends(require_scope("dashboard:view"))])
 async def export(request: Dict[str, Any]):
     file_format = request.get("format") or "csv"
     return {
@@ -408,6 +650,12 @@ async def export(request: Dict[str, Any]):
 
 
 def _save_generation(survey: Dict[str, Any], prompt: str, user_id: str, elapsed: float):
+    """Legacy helper kept for backwards-compat with v1 /generate endpoint.
+
+    The SDRD-facing /api/surveys/generate uses _log_generation_only() instead,
+    which writes ONLY to generation_logs (no Survey row) per the prompt contract:
+    'NO writes until officer edits/publishes; draft is held in builderStore'.
+    """
     from models.survey import GenerationLog, Survey
 
     db = _open_db()
@@ -423,6 +671,28 @@ def _save_generation(survey: Dict[str, Any], prompt: str, user_id: str, elapsed:
         ))
         db.add(GenerationLog(
             survey_id=survey["survey_id"],
+            prompt=prompt,
+            user_id=user_id,
+            success=True,
+            processing_time_seconds=elapsed,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _log_generation_only(survey: Dict[str, Any], prompt: str, user_id: str, elapsed: float):
+    """Persist only the GenerationLog row â€” no Survey row.
+
+    Honors the SDRD contract: prompt-to-canvas produces a draft held client-side
+    until the officer explicitly Creates/Publishes.
+    """
+    from models.survey import GenerationLog
+
+    db = _open_db()
+    try:
+        db.add(GenerationLog(
+            survey_id=survey.get("survey_id") or "draft",
             prompt=prompt,
             user_id=user_id,
             success=True,
@@ -488,47 +758,6 @@ def _designer_question_type(value: Any) -> str:
     return "text"
 
 
-def _save_seed_generation(prompt: str, user_id: str):
-    from models.survey import GenerationLog
-
-    db = _open_db()
-    try:
-        _ensure_seed_survey(db)
-        db.add(GenerationLog(
-            survey_id=_seed_survey()["id"],
-            prompt=prompt,
-            user_id=user_id,
-            success=True,
-            processing_time_seconds=0.05,
-        ))
-        db.commit()
-    finally:
-        db.close()
-
-
-def _ensure_seed_survey(db):
-    from models.survey import Survey
-
-    existing = db.query(Survey).filter(Survey.survey_id == _seed_survey()["id"]).first()
-    if existing:
-        return existing
-    survey = Survey(
-        survey_id=_seed_survey()["id"],
-        title=_seed_survey()["title"]["en"],
-        description="Seed survey for SATARK role-based demo",
-        domain="labour",
-        status="published",
-        survey_data=_seed_survey(),
-        created_by="seed",
-        tags=["employment", "household", "trusted-statistics"],
-        total_questions=len(_question_bank()),
-        prepopulation_rate=1,
-    )
-    db.add(survey)
-    db.commit()
-    return survey
-
-
 def _validate_response_payload(survey: Dict[str, Any], responses: list[Dict[str, Any]]) -> list[Dict[str, str]]:
     by_question = {item.get("question_id"): item.get("value") for item in responses}
     flags = []
@@ -558,25 +787,6 @@ def _is_blank(value: Any) -> bool:
     return value is None or value == "" or value == []
 
 
-def _find_code_suggestion(raw_value: str):
-    value = raw_value.strip().lower()
-    if not value:
-        return None
-    for record in _seed()["codes"]:
-        matched = next((synonym for synonym in record.get("synonyms", []) if synonym.lower() in value), None)
-        if matched or record["label"].lower() in value:
-            source = "MoSPI NIC" if record.get("externalSource") else "Local"
-            return {
-                "code": record["code"],
-                "type": record["type"],
-                "label": record["label"],
-                "confidence": 93 if record.get("externalSource") else 96,
-                "source": source,
-                "reason": f"Matched synonym '{matched or record['label']}' to {record['type']} {record['code']}",
-            }
-    return None
-
-
 def _evaluate_intelligence(
     answers: dict[str, str],
     active_question_id: str | None,
@@ -594,178 +804,3 @@ def _evaluate_intelligence(
         elapsed_seconds=elapsed_seconds,
     )
 
-    income = float(answers.get("income") or 0)
-    occupation = answers.get("occupation")
-    ref = _seed()["referenceDistributions"]
-    too_fast = speed_mode == "too-fast" or elapsed_seconds <= 5
-    unemployed_high_income = occupation == "Unemployed" and income > 50000
-    outside_income = income > ref["income"]["p95"] or (income > 0 and income < ref["income"]["p05"])
-
-    layers = [
-        {"layer": "Completeness", "status": "pass", "reason": "Required responses are present"},
-        {"layer": "Range", "status": "pass", "reason": "Numeric answers are inside permitted ranges"},
-        {"layer": "Cross-field", "status": "pass", "reason": "Occupation and income do not conflict"},
-        {"layer": "Context", "status": "pass", "reason": "Values are within regional reference distribution"},
-        {"layer": "Behaviour", "status": "pass", "reason": "Response speed is consistent with expected survey pace"},
-    ]
-    confidence = 96 if persona == "genuine" else 84
-    reason = "All validation layers are currently passing"
-
-    if unemployed_high_income or too_fast or outside_income:
-        layers = [
-            {"layer": "Completeness", "status": "pass", "reason": "Required responses are present"},
-            {"layer": "Range", "status": "pass", "reason": "Numeric answers are inside field-level ranges"},
-            (
-                {"layer": "Cross-field", "status": "fail", "reason": f"Income ₹{int(income):,} contradicts status 'Unemployed'"}
-                if unemployed_high_income
-                else {"layer": "Cross-field", "status": "pass", "reason": "Occupation and income do not conflict"}
-            ),
-            (
-                {"layer": "Context", "status": "warn", "reason": f"₹{int(income):,} outside regional range ₹6,000-₹80,000"}
-                if outside_income
-                else {"layer": "Context", "status": "pass", "reason": "Income is inside regional reference range"}
-            ),
-            (
-                {"layer": "Behaviour", "status": "fail", "reason": f"Answered in {max(3, round(elapsed_seconds))}s vs ~90s median"}
-                if too_fast
-                else {"layer": "Behaviour", "status": "pass", "reason": "Response speed is consistent with expected survey pace"}
-            ),
-        ]
-        confidence = 46 if unemployed_high_income and too_fast else 68 if outside_income else 72
-        reason = (
-            "Cross-field validation found income inconsistent with 'Unemployed'"
-            if unemployed_high_income
-            else "Context validation found an outlier that needs review"
-        )
-
-    failed = sum(1 for layer in layers if layer["status"] == "fail")
-    warned = sum(1 for layer in layers if layer["status"] == "warn")
-    suggestion = _find_code_suggestion(answers.get("occupation", "")) if active_question_id == "occupation" else None
-
-    return {
-        "confidence": confidence,
-        "trustLevel": _trust_level(confidence),
-        "decision": "SIMPLIFY" if failed else "ASK",
-        "nextQuestionId": None,
-        "reason": reason,
-        "layers": layers,
-        "scores": {
-            "engagement": 45 if too_fast else 92,
-            "fatigue": 38 if too_fast else 84,
-            "dropout": 44 if failed else 90,
-            "quality": confidence,
-        },
-        "breakdown": {
-            "validation": max(0, 100 - failed * 35 - warned * 12),
-            "fraud": 42 if too_fast else 94,
-            "evidence": 58 if failed else 90,
-            "behaviour": 34 if too_fast else 91,
-        },
-        "suggestion": suggestion,
-        "stored": False,
-    }
-
-
-def _trust_level(score: int | float) -> str:
-    if score >= 75:
-        return "Green"
-    if score >= 55:
-        return "Amber"
-    return "Red"
-
-
-def _seed_flags() -> list[dict[str, Any]]:
-    return [
-        {
-            "id": "flag-seed-1",
-            "enumeratorId": "ENUM-B",
-            "enumeratorName": "Suspect Enumerator",
-            "survey": _seed_survey()["title"]["en"],
-            "reason": "Income ₹2,00,000 contradicts status 'Unemployed'",
-            "trustScore": 40,
-            "trustLevel": "Red",
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        }
-    ]
-
-
-def _response_to_flag(row) -> dict[str, Any]:
-    enumerator = next((item for item in _seed()["enumerators"] if item["id"] == row.agent_id), None)
-    first_flag = (row.validation_flags or [{}])[0]
-    score = row.quality_score or 0
-    return {
-        "id": row.id,
-        "enumeratorId": row.agent_id or "unassigned",
-        "enumeratorName": enumerator["name"] if enumerator else row.agent_id or "Unassigned",
-        "survey": _seed_survey()["title"]["en"],
-        "reason": first_flag.get("reason") or first_flag.get("message") or "Validation warning",
-        "trustScore": score,
-        "trustLevel": _trust_level(score),
-        "timestamp": row.submitted_at.isoformat() if row.submitted_at else time.strftime("%Y-%m-%dT%H:%M:%S"),
-    }
-
-
-def _analytics_snapshot() -> dict[str, Any]:
-    enumerators = _seed()["enumerators"]
-    return {
-        "responsesToday": 186,
-        "flagged": 14,
-        "averageConfidence": 86.4,
-        "activeEnumerators": len(enumerators),
-        "totalResponses": 1000,
-        "validatedRate": 90,
-        "errorRate": 10,
-        "ruralUrban": [33.4, 66.6],
-        "genderRatio": {"male": 334, "female": 333},
-        "confidenceScore": 86.4,
-        "stateValidation": [
-            {"state": "Uttar Pradesh", "rate": 89.5},
-            {"state": "Maharashtra", "rate": 88.8},
-            {"state": "Bihar", "rate": 75.8},
-            {"state": "West Bengal", "rate": 79.2},
-            {"state": "Madhya Pradesh", "rate": 76.9},
-            {"state": "Tamil Nadu", "rate": 91.4},
-        ],
-        "enumeratorRanking": _enumerator_ranking(enumerators),
-        "responseTrend": [
-            {"label": "Mon", "responses": 120, "flagged": 8},
-            {"label": "Tue", "responses": 148, "flagged": 11},
-            {"label": "Wed", "responses": 171, "flagged": 16},
-            {"label": "Thu", "responses": 154, "flagged": 13},
-            {"label": "Fri", "responses": 186, "flagged": 15},
-            {"label": "Sat", "responses": 132, "flagged": 9},
-        ],
-        "sectorDistribution": [
-            {"sector": "Labour", "value": 38},
-            {"sector": "Health", "value": 22},
-            {"sector": "Agriculture", "value": 18},
-            {"sector": "Education", "value": 12},
-            {"sector": "Enterprise", "value": 10},
-        ],
-        "confidenceDistribution": [
-            {"bucket": "0-50", "count": 32},
-            {"bucket": "51-70", "count": 91},
-            {"bucket": "71-85", "count": 240},
-            {"bucket": "86-95", "count": 421},
-            {"bucket": "96-100", "count": 216},
-        ],
-    }
-
-
-def _enumerator_ranking(enumerators: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for index, enumerator in enumerate(enumerators):
-        rows.append({
-            **enumerator,
-            "responses": enumerator["completed"] * 9 + index * 11,
-            "errorRate": 14.1 if enumerator["trustLevel"] == "Red" else round(3.3 + index * 2.5, 1),
-            "flaggedRate": 18.4 if enumerator["trustLevel"] == "Red" else round(4.1 + index, 1),
-        })
-    rows.extend([
-        {**_seed()["enumerators"][0], "id": "ENUM004", "responses": 81, "errorRate": 3.3, "flaggedRate": 7},
-        {**_seed()["enumerators"][0], "id": "ENUM008", "responses": 116, "errorRate": 3.3, "flaggedRate": 4.1},
-        {**_seed()["enumerators"][0], "id": "ENUM006", "responses": 181, "errorRate": 5.8, "flaggedRate": 7},
-        {**_seed()["enumerators"][0], "id": "ENUM001", "responses": 173, "errorRate": 5.9, "flaggedRate": 0.8},
-        {**_seed()["enumerators"][1], "id": "ENUM009", "responses": 188, "errorRate": 14.1, "flaggedRate": 1.4},
-    ])
-    return rows

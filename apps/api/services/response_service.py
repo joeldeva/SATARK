@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import HTTPException
+
 from models.platform import (
     EnumeratorProfile,
     Paradata,
@@ -11,17 +13,22 @@ from models.platform import (
     ValidationResult,
     ValidationRuleRecord,
 )
+from models.survey import Survey
 from services.events import publish_intelligence_events
-from services.intelligence_adapter import DEFAULT_REFERENCE, DEFAULT_RULES, evaluate_intelligence_contract
+from services.intelligence_adapter import evaluate_intelligence_contract
 
 
 def store_collection_response(
     db,
     payload: dict[str, Any],
-    seed_survey: dict[str, Any],
     event_publisher=publish_intelligence_events,
 ) -> dict[str, Any]:
-    survey_id = payload.get("surveyId") or seed_survey["id"]
+    survey_id = payload.get("surveyId")
+    if not survey_id:
+        raise HTTPException(status_code=400, detail="surveyId is required")
+    survey = db.query(Survey).filter(Survey.survey_id == survey_id).first()
+    if not survey:
+        raise HTTPException(status_code=404, detail="Survey not found")
     answers = payload.get("answers") or {}
     enumerator_id = payload.get("enumeratorId")
     household_id = payload.get("householdId")
@@ -111,11 +118,12 @@ def store_collection_response(
     }
 
 
-def flagged_responses(db, seed_flags: list[dict[str, Any]], seed_survey: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = db.query(Response).order_by(Response.created_at.desc()).limit(100).all()
-    if not rows:
-        return seed_flags
-    return [_response_to_flag(db, row, seed_survey) for row in rows if row.status == "flagged" or row.trust_level == "Red"]
+def flagged_responses(db, status: str | None = None) -> list[dict[str, Any]]:
+    query = db.query(Response).order_by(Response.created_at.desc())
+    if status == "flagged":
+        query = query.filter((Response.status == "flagged") | (Response.trust_level == "Red"))
+    rows = query.limit(100).all()
+    return [_response_to_flag(db, row) for row in rows]
 
 
 def response_detail(db, response_id: str) -> dict[str, Any] | None:
@@ -162,7 +170,7 @@ def response_detail(db, response_id: str) -> dict[str, Any] | None:
 def _rules_for_survey(db, survey_id: str) -> list[dict[str, Any]]:
     rows = db.query(ValidationRuleRecord).filter(ValidationRuleRecord.survey_id == survey_id).all()
     if not rows:
-        return DEFAULT_RULES
+        raise HTTPException(status_code=409, detail=f"No validation rules configured for survey '{survey_id}'")
     return [
         {
             "field": row.field,
@@ -178,7 +186,7 @@ def _rules_for_survey(db, survey_id: str) -> list[dict[str, Any]]:
 def _reference(db) -> dict[str, Any]:
     rows = db.query(ReferenceDistribution).all()
     if not rows:
-        return DEFAULT_REFERENCE
+        raise HTTPException(status_code=409, detail="No reference distributions configured")
     return {
         row.key: {
             "stratum": row.stratum,
@@ -256,8 +264,9 @@ def _paradata_from_result(response_id, answers: dict[str, Any], speed_mode: str,
     )
 
 
-def _response_to_flag(db, row: Response, seed_survey: dict[str, Any]) -> dict[str, Any]:
+def _response_to_flag(db, row: Response) -> dict[str, Any]:
     enumerator = db.get(EnumeratorProfile, row.enumerator_id) if row.enumerator_id else None
+    survey = db.query(Survey).filter(Survey.survey_id == row.survey_id).first()
     validation = (
         db.query(ValidationResult)
         .filter(ValidationResult.response_id == row.id)
@@ -268,7 +277,7 @@ def _response_to_flag(db, row: Response, seed_survey: dict[str, Any]) -> dict[st
         "id": str(row.id),
         "enumeratorId": row.enumerator_id or "unassigned",
         "enumeratorName": enumerator.name if enumerator else row.enumerator_id or "Unassigned",
-        "survey": seed_survey["title"]["en"],
+        "survey": survey.title if survey else row.survey_id,
         "reason": validation.reason if validation else "Trust score marked this response for review",
         "trustScore": row.confidence_score or 0,
         "trustLevel": row.trust_level or "Amber",

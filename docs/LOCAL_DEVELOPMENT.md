@@ -64,6 +64,6 @@ npm audit --audit-level=low
 npm run build
 ```
 
-## Demo Runtime
+## Deployment Runtime
 
-Vercel is only the frontend/proxy path. The final demo must run FastAPI, Postgres, Redis, Chroma, Ollama, and `gemma2:2b` on one chosen local machine or VM, and that same machine should be rehearsed before presentation.
+Vercel is only the frontend/proxy path. FastAPI, Postgres, Redis, Chroma, Ollama, and `gemma2:2b` must run on one reachable local machine or VM.

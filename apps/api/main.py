@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 sys.path.insert(0, str(Path(__file__).parent))
 
 from api.routes import router, set_db_dependency, set_generator
+from api.rag_routes import router as rag_router, set_db_dependency as set_rag_db_dependency
 from app.config import settings
 from app.database import SessionLocal, get_db, init_db
 from app.seed import seed_core_data
@@ -40,6 +41,7 @@ app.add_middleware(
 
 app.include_router(router, prefix="/api")
 app.include_router(router, prefix="/api/v1")
+app.include_router(rag_router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -71,6 +73,7 @@ async def startup():
 
     set_generator(generator)
     set_db_dependency(get_db)
+    set_rag_db_dependency(get_db)
     logger.info("SATARK ready")
 
 

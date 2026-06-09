@@ -33,12 +33,9 @@ class LocalLLMPlanner:
             payload = self._extract_json(raw)
             return self._normalize(payload, prompt)
         except Exception as exc:
-            if self.required:
-                raise RuntimeError(
-                    f"Local LLM planner failed. Confirm Ollama is running and model '{self.model}' is pulled."
-                ) from exc
-            logger.warning("Local LLM unavailable; using deterministic parser: %s", exc)
-            return self.deterministic_parser.parse(prompt)
+            raise RuntimeError(
+                f"Local LLM planner failed. Confirm Ollama is running and model '{self.model}' is pulled."
+            ) from exc
 
     def _call_ollama(self, prompt: str) -> str:
         request_body = {
@@ -130,17 +127,17 @@ Rules:
         return json.loads(cleaned)
 
     def _normalize(self, payload: dict[str, Any], prompt: str) -> ParsedIntent:
-        fallback = self.deterministic_parser.parse(prompt)
+        baseline = self.deterministic_parser.parse(prompt)
         domains = {"labour", "health", "agriculture", "education", "household", "enterprise", "social"}
         languages = {"en", "hi", "ta", "bn", "te", "mr"}
-        domain = str(payload.get("domain") or fallback.domain).lower()
+        domain = str(payload.get("domain") or baseline.domain).lower()
         if domain not in domains:
-            domain = fallback.domain
+            domain = baseline.domain
 
-        audience = self._string_list(payload.get("audience")) or fallback.audience
-        topics = self._string_list(payload.get("topics")) or fallback.topics
-        special = self._string_list(payload.get("special_requirements")) or fallback.special_requirements
-        language = [item for item in self._string_list(payload.get("language")) if item in languages] or fallback.language
+        audience = self._string_list(payload.get("audience")) or baseline.audience
+        topics = self._string_list(payload.get("topics")) or baseline.topics
+        special = self._string_list(payload.get("special_requirements")) or baseline.special_requirements
+        language = [item for item in self._string_list(payload.get("language")) if item in languages] or baseline.language
         if "en" not in language:
             language.insert(0, "en")
 
@@ -148,13 +145,13 @@ Rules:
         if location is not None:
             location = str(location).lower()
             if location not in {"rural", "urban"}:
-                location = fallback.location_type
+                location = baseline.location_type
 
         num_questions = payload.get("num_questions")
         try:
-            num_questions = int(num_questions) if num_questions is not None else fallback.num_questions
+            num_questions = int(num_questions) if num_questions is not None else baseline.num_questions
         except (TypeError, ValueError):
-            num_questions = fallback.num_questions
+            num_questions = baseline.num_questions
         if num_questions is not None:
             num_questions = max(3, min(num_questions, 50))
 

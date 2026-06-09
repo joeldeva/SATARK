@@ -14,6 +14,7 @@ from models.platform import (
     Role,
     ValidationRuleRecord,
 )
+from models.survey import AdaptiveLogicRecord, Survey
 from services.intelligence_adapter import DEFAULT_RULES
 
 
@@ -27,7 +28,7 @@ PERMISSIONS_BY_ROLE = {
 
 
 def seed_core_data(db, project_root: Path) -> None:
-    seed_path = project_root / "data" / "demo_seed.json"
+    seed_path = project_root / "data" / "bootstrap_seed.json"
     with seed_path.open("r", encoding="utf-8") as handle:
         seed = json.load(handle)
 
@@ -38,6 +39,8 @@ def seed_core_data(db, project_root: Path) -> None:
     _seed_reference_data(db, seed)
     _seed_validation_rules(db, seed)
     _seed_codes(db, seed)
+    _seed_survey_graph(db, seed)
+    _seed_adaptive_logic(db, seed)
     db.commit()
 
 
@@ -165,6 +168,60 @@ def _seed_codes(db, seed: dict) -> None:
             db.add(ClassificationCode(code=code["code"], code_type=code["type"], **values))
 
 
+def _seed_survey_graph(db, seed: dict) -> None:
+    """Load the bootstrap survey JSON into surveys.question_graph."""
+    survey_seed = seed.get("survey")
+    if not survey_seed:
+        return
+
+    survey_id = survey_seed["id"]
+    title_obj = survey_seed.get("title") or {}
+    title_en = title_obj.get("en") if isinstance(title_obj, dict) else str(title_obj)
+    title = title_en or survey_id
+
+    row = db.query(Survey).filter(Survey.survey_id == survey_id).first()
+    payload = {
+        "title": title,
+        "description": survey_seed.get("description", "Demo employment survey"),
+        "domain": survey_seed.get("domain", "labour"),
+        "status": survey_seed.get("status", "published"),
+        "survey_data": survey_seed,
+        "question_graph": survey_seed,
+        "version": int(survey_seed.get("version", 1)),
+        "created_by": "sdrd",
+        "total_questions": len(survey_seed.get("nodes", []) or []),
+        "tags": survey_seed.get("tags", []),
+    }
+    if row:
+        for key, value in payload.items():
+            setattr(row, key, value)
+    else:
+        db.add(Survey(survey_id=survey_id, **payload))
+
+
+def _seed_adaptive_logic(db, seed: dict) -> None:
+    """Seed adaptive branches from the bootstrap survey branches field if present."""
+    survey_seed = seed.get("survey") or {}
+    survey_id = survey_seed.get("id")
+    if not survey_id:
+        return
+    if db.query(AdaptiveLogicRecord).filter(AdaptiveLogicRecord.survey_id == survey_id).count():
+        return
+
+    branches = survey_seed.get("branches") or {}
+    if isinstance(branches, dict):
+        for trigger_field, target_node in branches.items():
+            db.add(
+                AdaptiveLogicRecord(
+                    survey_id=survey_id,
+                    trigger={"field": trigger_field},
+                    action="branch",
+                    target={"node": target_node},
+                )
+            )
+
+
 def _hash_password(password: str) -> str:
+    """Backwards-compatible hash. JWT verifier accepts both sha256: and bcrypt: prefixes."""
     digest = hashlib.sha256(password.encode("utf-8")).hexdigest()
     return f"sha256:{digest}"

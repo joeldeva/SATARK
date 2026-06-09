@@ -16,7 +16,7 @@ apps/
   api/    FastAPI backend, Postgres-first persistence, SATARK API contract
   web/    React 18 + TypeScript + Tailwind PWA
 data/
-  demo_seed.json   demo users, enumerators, survey, codes, personas, trust rules
+  bootstrap_seed.json   initial users, roles, enumerators, survey, codes, personas, trust rules
   knowledge_base/  curated survey and validation-rule data
   question_bank/   normalized source question bank
 docs/
@@ -52,7 +52,7 @@ Open http://localhost:3001.
 
 API docs are available at http://localhost:8001/docs.
 
-For a deployed demo, Vercel should host only the frontend/proxy. The selected demo machine or VM must run FastAPI, Postgres, Redis, Chroma, Ollama, and `gemma2:2b`.
+For deployment, Vercel can host the frontend/proxy only. FastAPI, Postgres, Redis, Chroma, Ollama, and `gemma2:2b` must run on a reachable backend machine or VM.
 
 ## Demo Login
 
