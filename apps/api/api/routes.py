@@ -381,7 +381,26 @@ async def llm_status():
 
 @router.post("/consent", dependencies=[Depends(require_scope("collect:write"))])
 async def consent(request: Dict[str, Any]):
-    return {"ok": True, "consentId": f"consent-{int(time.time() * 1000)}", "received": request}
+    from models.platform import ConsentRecord
+
+    survey_id = request.get("surveyId") or request.get("survey_id")
+    if not survey_id:
+        raise HTTPException(status_code=400, detail="surveyId is required")
+    db = _open_db()
+    try:
+        row = ConsentRecord(
+            survey_id=str(survey_id),
+            household_id=request.get("householdId") or request.get("household_id"),
+            enumerator_id=request.get("enumeratorId") or request.get("enumerator_id"),
+            consented=bool(request.get("consented", True)),
+            language=request.get("language"),
+            payload=request,
+        )
+        db.add(row)
+        db.commit()
+        return {"ok": True, "consentId": str(row.id), "consented": row.consented}
+    finally:
+        db.close()
 
 
 @router.post("/prepopulate", dependencies=[Depends(require_scope("collect:write"))])
@@ -399,7 +418,24 @@ async def prepopulate(request: Dict[str, Any]):
 
 @router.post("/intelligence/sessions", dependencies=[Depends(require_scope("collect:write"))])
 async def intelligence_session(request: Dict[str, Any]):
-    return {"sessionId": f"session-{int(time.time() * 1000)}", "surveyId": request.get("surveyId")}
+    from models.platform import IntelligenceSession
+
+    survey_id = request.get("surveyId") or request.get("survey_id")
+    if not survey_id:
+        raise HTTPException(status_code=400, detail="surveyId is required")
+    db = _open_db()
+    try:
+        row = IntelligenceSession(
+            survey_id=str(survey_id),
+            household_id=request.get("householdId") or request.get("household_id"),
+            enumerator_id=request.get("enumeratorId") or request.get("enumerator_id"),
+            payload=request,
+        )
+        db.add(row)
+        db.commit()
+        return {"sessionId": str(row.id), "surveyId": row.survey_id, "status": row.status}
+    finally:
+        db.close()
 
 
 @router.post("/intelligence/answer", dependencies=[Depends(require_scope("collect:write"))])
@@ -426,7 +462,8 @@ async def submit_collection_response(request: Dict[str, Any]):
 
 @router.post("/surveys/{survey_id}/responses", dependencies=[Depends(require_scope("collect:write"))])
 async def submit_response(survey_id: str, request: Dict[str, Any]):
-    from models.survey import Survey, SurveyResponse
+    from models.survey import Survey
+    from services.response_service import store_collection_response
 
     db = _open_db()
     try:
@@ -434,35 +471,32 @@ async def submit_response(survey_id: str, request: Dict[str, Any]):
         if not survey:
             raise HTTPException(status_code=404, detail="Survey not found")
 
-        responses = request.get("responses")
-        if not isinstance(responses, list) or not responses:
-            raise HTTPException(status_code=400, detail="responses must be a non-empty list")
-
-        validation_flags = _validate_response_payload(survey.survey_data, responses)
-        quality_score = max(0, 100 - (len(validation_flags) * 10))
-
-        response = SurveyResponse(
-            survey_id=survey_id,
-            respondent_id=request.get("respondent_id"),
-            responses=responses,
-            channel=request.get("channel", "web"),
-            duration_seconds=request.get("duration_seconds"),
-            quality_score=quality_score,
-            state=request.get("state"),
-            district=request.get("district"),
-            agent_id=request.get("agent_id"),
-            gps_latitude=request.get("gps_latitude"),
-            gps_longitude=request.get("gps_longitude"),
-            is_validated=not validation_flags,
-            validation_flags=validation_flags,
+        answers = request.get("answers")
+        if answers is None:
+            submitted = request.get("responses")
+            if not isinstance(submitted, list) or not submitted:
+                raise HTTPException(status_code=400, detail="answers or responses must be provided")
+            answers = {item.get("question_id"): item.get("value") for item in submitted if item.get("question_id")}
+        result = store_collection_response(
+            db,
+            {
+                "surveyId": survey_id,
+                "householdId": request.get("householdId") or request.get("respondent_id"),
+                "enumeratorId": request.get("enumeratorId") or request.get("agent_id"),
+                "answers": answers,
+                "channel": request.get("channel", "web"),
+                "durationSeconds": request.get("duration_seconds") or request.get("durationSeconds"),
+                "gpsLatitude": request.get("gps_latitude") or request.get("gpsLatitude"),
+                "gpsLongitude": request.get("gps_longitude") or request.get("gpsLongitude"),
+            },
         )
-        db.add(response)
-        db.commit()
         return {
-            "success": not validation_flags,
-            "response_id": response.id,
-            "quality_score": quality_score,
-            "validation_flags": validation_flags,
+            "success": result["status"] != "flagged",
+            "response_id": result["responseId"],
+            "quality_score": result["qualityScore"],
+            "trustLevel": result["trustLevel"],
+            "status": result["status"],
+            "validation_flags": result["intelligence"]["layers"],
         }
     finally:
         db.close()
@@ -527,7 +561,28 @@ async def coding(request: Dict[str, Any]):
 
 @router.post("/coding/review", dependencies=[Depends(require_scope("coding:review"))])
 async def coding_review(request: Dict[str, Any]):
-    return {"ok": True, "review": request}
+    from models.platform import CodingResult
+
+    raw_text = str(request.get("rawText") or request.get("raw_text") or request.get("rawResponse") or "")
+    field = str(request.get("field") or "occupation")
+    db = _open_db()
+    try:
+        row = CodingResult(
+            response_id=request.get("responseId") or request.get("response_id"),
+            field=field,
+            raw_text=raw_text,
+            suggestions=request.get("suggestions") or [],
+            approved_code=request.get("approvedCode") or request.get("approved_code"),
+            approved_label=request.get("approvedLabel") or request.get("approved_label"),
+            source=str(request.get("source") or "human_review"),
+            confidence=float(request.get("confidence") or 100 if request.get("approvedCode") or request.get("approved_code") else 0),
+            needs_review=not bool(request.get("approved") or request.get("approvedCode") or request.get("approved_code")),
+        )
+        db.add(row)
+        db.commit()
+        return {"ok": True, "codingResultId": str(row.id), "needsReview": row.needs_review}
+    finally:
+        db.close()
 
 
 @router.get("/enumerators", dependencies=[Depends(require_scope("dashboard:view"))])
@@ -555,9 +610,70 @@ async def enumerator(enumerator_id: str):
     return {"enumerator": item}
 
 
+@router.get("/assignments", dependencies=[Depends(require_scope("dashboard:view"))])
+async def assignments(
+    survey_id: str | None = Query(default=None),
+    enumerator_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+):
+    from models.platform import Assignment, EnumeratorProfile, Household
+    from models.survey import Survey
+
+    db = _open_db()
+    try:
+        query = db.query(Assignment).order_by(Assignment.created_at.desc())
+        if survey_id:
+            query = query.filter(Assignment.survey_id == survey_id)
+        if enumerator_id:
+            query = query.filter(Assignment.enumerator_id == enumerator_id)
+        if status:
+            query = query.filter(Assignment.status == status)
+        rows = query.limit(500).all()
+        payload = []
+        for row in rows:
+            survey = db.query(Survey).filter(Survey.survey_id == row.survey_id).first()
+            enumerator_row = db.get(EnumeratorProfile, row.enumerator_id)
+            household = db.get(Household, row.household_id) if row.household_id else None
+            payload.append({
+                "id": str(row.id),
+                "surveyId": row.survey_id,
+                "surveyTitle": survey.title if survey else row.survey_id,
+                "enumeratorId": row.enumerator_id,
+                "enumeratorName": enumerator_row.name if enumerator_row else row.enumerator_id,
+                "householdId": row.household_id,
+                "household": household.prepopulated if household else None,
+                "status": row.status,
+                "createdAt": row.created_at.isoformat() if row.created_at else None,
+            })
+        return {"assignments": payload}
+    finally:
+        db.close()
+
+
 @router.post("/actions", dependencies=[Depends(require_scope("dashboard:view"))])
-async def actions(request: Dict[str, Any]):
-    return {"ok": True, "action": request}
+async def actions(request: Dict[str, Any], user: dict = Depends(get_current_user)):
+    from models.platform import AuditLog
+
+    action = str(request.get("action") or "action")
+    entity_type = str(request.get("entityType") or request.get("entity_type") or "system")
+    entity_id = str(request.get("entityId") or request.get("entity_id") or "")
+    if not entity_id:
+        raise HTTPException(status_code=400, detail="entityId is required")
+    db = _open_db()
+    try:
+        row = AuditLog(
+            actor=user.get("username") or "unknown",
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            payload=request,
+            reason=str(request.get("reason") or ""),
+        )
+        db.add(row)
+        db.commit()
+        return {"ok": True, "auditId": str(row.id)}
+    finally:
+        db.close()
 
 
 @router.get("/analytics", dependencies=[Depends(require_scope("dashboard:view"))])
@@ -573,16 +689,17 @@ async def analytics():
 
 @router.get("/analytics/summary", dependencies=[Depends(require_scope("dashboard:view"))])
 async def analytics_summary():
-    from models.survey import Survey, SurveyResponse
+    from models.platform import Response
+    from models.survey import Survey
 
     db = _open_db()
     try:
         surveys = db.query(Survey).all()
-        responses = db.query(SurveyResponse).all()
-        validated = sum(1 for response in responses if response.is_validated)
+        responses = db.query(Response).all()
+        validated = sum(1 for response in responses if response.trust_level == "Green")
         domain_counts = Counter(survey.domain for survey in surveys)
         avg_quality = (
-            round(sum((response.quality_score or 0) for response in responses) / len(responses), 1)
+            round(sum((response.confidence_score or 0) for response in responses) / len(responses), 1)
             if responses else 0
         )
         return {
@@ -599,14 +716,14 @@ async def analytics_summary():
 
 @router.get("/analytics/timeseries", dependencies=[Depends(require_scope("dashboard:view"))])
 async def analytics_timeseries():
-    from models.survey import SurveyResponse
+    from models.platform import Response
 
     db = _open_db()
     try:
         buckets = defaultdict(int)
-        for response in db.query(SurveyResponse).all():
-            if response.submitted_at:
-                buckets[response.submitted_at.date().isoformat()] += 1
+        for response in db.query(Response).all():
+            if response.created_at:
+                buckets[response.created_at.date().isoformat()] += 1
         points = [{"date": date, "responses": count} for date, count in sorted(buckets.items())]
         return {"points": points}
     finally:
@@ -615,16 +732,16 @@ async def analytics_timeseries():
 
 @router.get("/analytics/agents", dependencies=[Depends(require_scope("dashboard:view"))])
 async def analytics_agents():
-    from models.survey import SurveyResponse
+    from models.platform import Response
 
     db = _open_db()
     try:
         stats = defaultdict(lambda: {"responses": 0, "validated": 0, "quality_total": 0})
-        for response in db.query(SurveyResponse).all():
-            agent = response.agent_id or "unassigned"
+        for response in db.query(Response).all():
+            agent = response.enumerator_id or "unassigned"
             stats[agent]["responses"] += 1
-            stats[agent]["validated"] += 1 if response.is_validated else 0
-            stats[agent]["quality_total"] += response.quality_score or 0
+            stats[agent]["validated"] += 1 if response.trust_level == "Green" else 0
+            stats[agent]["quality_total"] += response.confidence_score or 0
 
         agents = []
         for agent_id, values in stats.items():
@@ -642,11 +759,41 @@ async def analytics_agents():
 
 @router.post("/export", dependencies=[Depends(require_scope("dashboard:view"))])
 async def export(request: Dict[str, Any]):
+    from models.platform import Response
+    from models.survey import Survey
+
     file_format = request.get("format") or "csv"
-    return {
-        "fileName": f"satark-export.{file_format}",
-        "content": "survey,responses,validated,error_rate\nPLFS 2025-26,1000,90,10",
-    }
+    db = _open_db()
+    try:
+        responses = db.query(Response).order_by(Response.created_at.asc()).all()
+        surveys = {row.survey_id: row for row in db.query(Survey).all()}
+        rows = ["survey_id,survey_title,response_id,enumerator_id,household_id,status,trust_level,confidence,created_at"]
+        for response in responses:
+            survey = surveys.get(response.survey_id)
+            rows.append(
+                ",".join(
+                    [
+                        _csv(response.survey_id),
+                        _csv(survey.title if survey else response.survey_id),
+                        _csv(str(response.id)),
+                        _csv(response.enumerator_id or ""),
+                        _csv(response.household_id or ""),
+                        _csv(response.status),
+                        _csv(response.trust_level or ""),
+                        _csv(str(response.confidence_score or 0)),
+                        _csv(response.created_at.isoformat() if response.created_at else ""),
+                    ]
+                )
+            )
+        content = "\n".join(rows)
+        if file_format == "pdf":
+            content = "SATARK Export\n\n" + content
+        return {
+            "fileName": f"satark-export.{file_format}",
+            "content": content,
+        }
+    finally:
+        db.close()
 
 
 def _save_generation(survey: Dict[str, Any], prompt: str, user_id: str, elapsed: float):
@@ -756,6 +903,13 @@ def _designer_question_type(value: Any) -> str:
     if value in {"date"}:
         return "date"
     return "text"
+
+
+def _csv(value: Any) -> str:
+    text = str(value if value is not None else "")
+    if any(char in text for char in [",", '"', "\n", "\r"]):
+        return '"' + text.replace('"', '""') + '"'
+    return text
 
 
 def _validate_response_payload(survey: Dict[str, Any], responses: list[Dict[str, Any]]) -> list[Dict[str, str]]:

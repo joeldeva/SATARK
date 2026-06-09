@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from models.platform import (
+    Assignment,
     ClassificationCode,
     EnumeratorProfile,
     Household,
@@ -41,6 +42,7 @@ def seed_core_data(db, project_root: Path) -> None:
     _seed_codes(db, seed)
     _seed_survey_graph(db, seed)
     _seed_adaptive_logic(db, seed)
+    _seed_assignments(db, seed)
     db.commit()
 
 
@@ -219,6 +221,28 @@ def _seed_adaptive_logic(db, seed: dict) -> None:
                     target={"node": target_node},
                 )
             )
+
+
+def _seed_assignments(db, seed: dict) -> None:
+    survey_id = (seed.get("survey") or {}).get("id")
+    if not survey_id:
+        return
+    if db.query(Assignment).filter(Assignment.survey_id == survey_id).count():
+        return
+    households = seed.get("households", [])
+    enumerators = seed.get("enumerators", [])
+    if not households or not enumerators:
+        return
+    for index, household in enumerate(households):
+        enumerator = enumerators[index % len(enumerators)]
+        db.add(
+            Assignment(
+                survey_id=survey_id,
+                enumerator_id=enumerator["id"],
+                household_id=household["id"],
+                status="assigned",
+            )
+        )
 
 
 def _hash_password(password: str) -> str:

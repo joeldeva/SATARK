@@ -110,6 +110,32 @@ class Assignment(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class ConsentRecord(Base):
+    __tablename__ = "consents"
+
+    id = uuid_pk()
+    survey_id = Column(String(80), nullable=False, index=True)
+    household_id = Column(String(64), ForeignKey("households.id"), nullable=True, index=True)
+    enumerator_id = Column(String(64), ForeignKey("enumerators.id"), nullable=True, index=True)
+    consented = Column(Boolean, default=True, nullable=False)
+    language = Column(String(16))
+    payload = Column(JSON_DOCUMENT, default=dict, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class IntelligenceSession(Base):
+    __tablename__ = "intelligence_sessions"
+
+    id = uuid_pk()
+    survey_id = Column(String(80), nullable=False, index=True)
+    household_id = Column(String(64), ForeignKey("households.id"), nullable=True, index=True)
+    enumerator_id = Column(String(64), ForeignKey("enumerators.id"), nullable=True, index=True)
+    status = Column(String(24), default="active", nullable=False, index=True)
+    payload = Column(JSON_DOCUMENT, default=dict, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class Response(Base):
     __tablename__ = "responses"
 
