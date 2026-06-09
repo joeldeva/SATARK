@@ -32,6 +32,13 @@ Infra:
 docker compose up -d postgres redis chroma
 ```
 
+Complete backend stack:
+
+```powershell
+$env:SATARK_SECRET_KEY="<long-random-secret>"
+docker compose up -d postgres redis chroma api
+```
+
 Backend:
 
 ```powershell

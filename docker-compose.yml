@@ -43,6 +43,39 @@ services:
       IS_PERSISTENT: "TRUE"
       ANONYMIZED_TELEMETRY: "FALSE"
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: satark-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_started
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://satark:satark@postgres:5432/satark
+      REDIS_URL: redis://redis:6379/0
+      CHROMA_URL: http://chroma:8000
+      LLM_PROVIDER: ollama
+      LLM_MODEL: gemma2:2b
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      LLM_REQUIRED: "true"
+      SECRET_KEY: ${SATARK_SECRET_KEY:?Set SATARK_SECRET_KEY before starting the API}
+      CORS_ORIGINS: ${SATARK_CORS_ORIGINS:-http://localhost:3001,http://127.0.0.1:3001}
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=5)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 volumes:
   satark_pgdata:
   satark_redis:
