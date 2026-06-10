@@ -456,6 +456,39 @@ async def intelligence_session(request: Dict[str, Any]):
         db.close()
 
 
+@router.post("/collection/sessions/start", dependencies=[Depends(require_scope("collect:write"))])
+async def collection_session_start(request: Dict[str, Any]):
+    from services.collection_service import start_session
+
+    db = _open_db()
+    try:
+        return start_session(db, request)
+    finally:
+        db.close()
+
+
+@router.post("/collection/sessions/{session_id}/answer", dependencies=[Depends(require_scope("collect:write"))])
+async def collection_session_answer(session_id: str, request: Dict[str, Any]):
+    from services.collection_service import answer_session
+
+    db = _open_db()
+    try:
+        return answer_session(db, session_id, request)
+    finally:
+        db.close()
+
+
+@router.post("/collection/sessions/{session_id}/complete", dependencies=[Depends(require_scope("collect:write"))])
+async def collection_session_complete(session_id: str):
+    from services.collection_service import complete_session
+
+    db = _open_db()
+    try:
+        return complete_session(db, session_id)
+    finally:
+        db.close()
+
+
 @router.post("/intelligence/answer", dependencies=[Depends(require_scope("collect:write"))])
 async def intelligence_answer(request: Dict[str, Any]):
     return _evaluate_intelligence(

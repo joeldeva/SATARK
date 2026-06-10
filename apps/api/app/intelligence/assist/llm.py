@@ -4,12 +4,17 @@ import json
 import urllib.request
 
 from app.config import settings
+from app.intelligence.assist.prompting import format_prompt
 
 
 def generate(prompt: str, context: str | None = None, max_tokens: int = 512) -> dict:
+    rendered_prompt, framework = format_prompt(
+        "{prompt}\n\nContext:\n{context}" if context else "{prompt}",
+        {"prompt": prompt, "context": context or ""},
+    )
     body = {
         "model": settings.gemma_model,
-        "prompt": f"{prompt}\n\nContext:\n{context}" if context else prompt,
+        "prompt": rendered_prompt,
         "stream": False,
         "options": {"num_predict": max_tokens, "temperature": 0.2},
     }
@@ -28,4 +33,5 @@ def generate(prompt: str, context: str | None = None, max_tokens: int = 512) -> 
         "provider": "ollama",
         "needs_review": True,
         "is_verdict": False,
+        "assist_framework": framework,
     }

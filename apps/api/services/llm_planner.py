@@ -6,6 +6,8 @@ import urllib.request
 from dataclasses import asdict
 from typing import Any
 
+from app.intelligence.assist.prompting import format_prompt
+
 from .prompt_parser import ParsedIntent, PromptParser
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,7 @@ class LocalLLMPlanner:
         self.timeout_seconds = timeout_seconds
         self.required = required
         self.deterministic_parser = PromptParser()
+        self._last_assist_framework = None
 
     def plan(self, prompt: str) -> ParsedIntent:
         try:
@@ -77,10 +80,10 @@ class LocalLLMPlanner:
         return str(body.get("message", {}).get("content", ""))
 
     def _prompt(self, prompt: str) -> str:
-        return f"""
+        template = """
 Extract survey generation intent from this prompt:
 
-{prompt}
+{user_prompt}
 
 Return JSON with exactly these keys:
 {{
@@ -115,6 +118,9 @@ Rules:
 - If the prompt asks for Hindi or Tamil, include that code plus "en".
 - Do not include markdown.
 """.strip()
+        rendered, framework = format_prompt(template, {"user_prompt": prompt})
+        self._last_assist_framework = framework
+        return rendered
 
     def _extract_json(self, text: str) -> dict[str, Any]:
         cleaned = text.strip()
@@ -167,6 +173,7 @@ Rules:
             planner_model=self.model,
             planner_confidence=self._safe_int(payload.get("confidence")),
             planner_reason=str(payload.get("reason") or "Local LLM extracted structured survey intent."),
+            assist_framework=self._last_assist_framework,
             draft_questions=self._draft_questions(payload.get("draft_questions"), domain, topics),
         )
 
@@ -269,5 +276,6 @@ def intent_trace(intent: ParsedIntent) -> dict[str, Any]:
         "planner_model": data.get("planner_model"),
         "planner_confidence": data.get("planner_confidence"),
         "planner_reason": data.get("planner_reason"),
+        "assist_framework": data.get("assist_framework"),
         "draft_question_count": len(data.get("draft_questions") or []),
     }

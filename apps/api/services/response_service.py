@@ -40,16 +40,24 @@ def store_collection_response(
     speed_mode = _speed_mode_from_payload(payload, incoming_intelligence)
     elapsed_seconds = _elapsed_seconds_from_payload(payload, incoming_intelligence, speed_mode)
 
-    enumerator_ctx = _enumerator_context(db, enumerator_id)
-    intelligence = evaluate_intelligence_contract(
-        answers=answers,
-        active_question_id=None,
-        speed_mode=speed_mode,
-        elapsed_seconds=elapsed_seconds,
-        rules=_rules_for_survey(db, survey_id),
-        reference=_reference(db),
-        enumerator=enumerator_ctx,
-    )
+    session_intelligence = payload.get("intelligence") if payload.get("verdictSource") == "session" else None
+    if (
+        isinstance(session_intelligence, dict)
+        and session_intelligence.get("is_verdict") is True
+        and isinstance(session_intelligence.get("native_trust"), dict)
+    ):
+        intelligence = session_intelligence
+    else:
+        enumerator_ctx = _enumerator_context(db, enumerator_id)
+        intelligence = evaluate_intelligence_contract(
+            answers=answers,
+            active_question_id=None,
+            speed_mode=speed_mode,
+            elapsed_seconds=elapsed_seconds,
+            rules=_rules_for_survey(db, survey_id),
+            reference=_reference(db),
+            enumerator=enumerator_ctx,
+        )
 
     trust_level = intelligence["trustLevel"]
     status = "approved" if trust_level == "Green" else "flagged" if trust_level == "Red" else "captured"

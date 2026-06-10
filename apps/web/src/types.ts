@@ -214,6 +214,21 @@ export interface CodingReviewItem {
   createdAt?: string | null;
 }
 
+export interface CollectionSessionState {
+  sessionId: string;
+  status: string;
+  assignment?: Assignment;
+  survey?: Survey & { status?: string; version?: number };
+  household?: Household | null;
+  enumerator?: Pick<Enumerator, 'id' | 'name' | 'region' | 'trustScore' | 'trustLevel' | 'trustTrend'> | null;
+  currentQuestion: SurveyQuestion | null;
+  nextQuestionId?: string | null;
+  visibleQueue: string[];
+  answers: Record<string, string>;
+  intelligence: IntelligenceResult | null;
+  complete: boolean;
+}
+
 export interface AnalyticsSnapshot {
   responsesToday: number;
   flagged: number;

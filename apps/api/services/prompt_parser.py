@@ -16,6 +16,7 @@ class ParsedIntent:
     planner_model: Optional[str] = None
     planner_confidence: Optional[int] = None
     planner_reason: Optional[str] = None
+    assist_framework: Optional[str] = None
     draft_questions: List[Dict] = field(default_factory=list)
 
 

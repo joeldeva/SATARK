@@ -6,6 +6,7 @@ import type {
   CodeRecord,
   CodeSuggestion,
   CodingReviewItem,
+  CollectionSessionState,
   Enumerator,
   Household,
   IntelligenceResult,
@@ -158,6 +159,37 @@ export async function startIntelligenceSession(payload: Record<string, unknown>)
   return request<{ sessionId: string }>('/intelligence/sessions', {
     method: 'POST',
     body: JSON.stringify(payload)
+  });
+}
+
+export async function startCollectionSession(payload: { assignmentId?: string; surveyId?: string; language?: string }) {
+  return request<CollectionSessionState>('/collection/sessions/start', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function answerCollectionSession(
+  sessionId: string,
+  payload: { questionId: string; value: string; elapsedSeconds: number; correctionCount?: number; backNavCount?: number }
+) {
+  return request<CollectionSessionState>(`/collection/sessions/${sessionId}/answer`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function completeCollectionSession(sessionId: string) {
+  return request<{
+    ok: boolean;
+    sessionId: string;
+    status: string;
+    responseId: string;
+    qualityScore: number;
+    trustLevel: string;
+    intelligence: IntelligenceResult;
+  }>(`/collection/sessions/${sessionId}/complete`, {
+    method: 'POST'
   });
 }
 

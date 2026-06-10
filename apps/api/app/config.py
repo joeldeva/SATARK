@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     CHROMA_DIR: str = str(PROJECT_ROOT / "data" / "chroma")
 
     REDIS_URL: str = "redis://localhost:6379/0"
+    SUPERPLANE_WEBHOOK_URL: Optional[str] = None
+    SUPERPLANE_TOKEN: Optional[str] = None
     TRUST_WEIGHT_VALIDATION: float = 0.40
     TRUST_WEIGHT_FRAUD: float = 0.30
     TRUST_WEIGHT_EVIDENCE: float = 0.15

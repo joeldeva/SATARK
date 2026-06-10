@@ -58,6 +58,7 @@ def evaluate_intelligence_contract(
     rules: list[dict[str, Any]] | None = None,
     reference: dict[str, Any] | None = None,
     enumerator: dict[str, Any] | None = None,
+    adaptive_logic: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Run the deterministic verdict lane and preserve the existing frontend API shape."""
 
@@ -78,6 +79,7 @@ def evaluate_intelligence_contract(
             numeric_fields=numeric_fields,
             evidence_present=True,
             enumerator=enumerator,
+            adaptive_logic=adaptive_logic or [],
             last_qid=active_question_id,
         )
     )
