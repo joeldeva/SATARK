@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from api.routes import router, set_db_dependency, set_generator
 from api.rag_routes import router as rag_router, set_db_dependency as set_rag_db_dependency
 from api.event_routes import router as event_router
+from api.whatsapp import router as whatsapp_router, set_db_dependency as set_whatsapp_db_dependency
 from app.config import settings
 from app.database import SessionLocal, get_db, init_db
 from app.runtime_checks import assert_required_runtime, readiness
@@ -60,6 +61,7 @@ async def lifespan(app: FastAPI):
     set_generator(generator)
     set_db_dependency(get_db)
     set_rag_db_dependency(get_db)
+    set_whatsapp_db_dependency(get_db)
     logger.info("SATARK ready")
     yield
 
@@ -85,6 +87,7 @@ app.include_router(router, prefix="/api")
 app.include_router(router, prefix="/api/v1")
 app.include_router(rag_router, prefix="/api")
 app.include_router(event_router, prefix="/api")
+app.include_router(whatsapp_router, prefix="/api")
 
 
 @app.get("/")

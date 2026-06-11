@@ -1,253 +1,142 @@
-export type Role = 'admin' | 'sdrd' | 'fod' | 'dpd' | 'scd';
-export type Language = 'en' | 'hi' | 'ta';
-export type TrustLevel = 'Green' | 'Amber' | 'Red';
-export type StatusLevel = 'pass' | 'warn' | 'fail';
-export type QuestionType = 'text' | 'number' | 'choice' | 'adaptive' | 'date' | 'multi';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+export type UserRole = 'admin' | 'sdrd' | 'fod' | 'dpd' | 'scd' | 'enumerator';
 
 export interface User {
-  username: string;
-  password: string;
-  role: Role;
+  id: string;
   name: string;
+  role: UserRole;
+  region: string;
+}
+
+export type QuestionType = 'single' | 'multi' | 'number' | 'text' | 'date';
+
+export interface ValidationRule {
+  id: string;
+  type: 'range' | 'required' | 'cross' | 'regex';
+  fieldName: string;
+  expression: string; // e.g., "income < 50000" if occupation is student
+  reason: string;     // Reason emitted if rule fails
+  severity: 'fail' | 'warn';
+}
+
+export interface Question {
+  id: string;
+  block: string; // e.g., "Block 1: Demographics"
+  code: string;  // e.g., "Q1", "Q_OCCUPATION"
+  text_en: string;
+  text_hi: string;
+  text_ta: string;
+  type: QuestionType;
+  options?: string[]; // English options
+  options_hi?: string[];
+  options_ta?: string[];
+  conditionalShow?: string; // expression like "Q_OCCUPATION !== 'Student'"
+  autoCodeAs?: 'None' | 'NCO' | 'NIC' | 'ISIC';
+  validationRules?: ValidationRule[];
+}
+
+export interface Survey {
+  id: string;
+  name_en: string;
+  name_hi: string;
+  name_ta: string;
+  version: string;
+  status: 'Draft' | 'Published';
+  questions: Question[];
+}
+
+export interface ClassificationCode {
+  code: string;
+  type: 'NCO' | 'NIC' | 'ISIC';
+  label_en: string;
+  label_hi: string;
+  label_ta: string;
+  synonyms: string[];
+}
+
+export interface Paradata {
+  timePerQuestion: Record<string, number>; // questionId -> ms
+  corrections: number; // backspaces/edits
+  navBackCount: number; // back button presses
+  interruptedCount: number; // window blur/resume
+  gpsLat?: number;
+  gpsLng?: number;
+  mode: 'CAPI' | 'CATI' | 'Self';
+}
+
+export interface BehaviorScores {
+  engagement: number; // 0-100
+  fatigue: number;    // 0-100
+  dropout: number;    // 0-100
+  quality: number;    // 0-100
+}
+
+export interface ValidationStatus {
+  layer1_rule: { status: 'pass' | 'fail' | 'warn'; reason: string }; // Standard rules
+  layer2_govt: { status: 'pass' | 'fail' | 'warn'; reason: string }; // LGD / official codes
+  layer3_bayesian: { status: 'pass' | 'fail' | 'warn'; reason: string }; // Statistical outlier
+  layer4_behavior: { status: 'pass' | 'fail' | 'warn'; reason: string }; // Speed, straight-lining
+  layer5_cross: { status: 'pass' | 'fail' | 'warn'; reason: string }; // Logical contradictions
+}
+
+export interface SurveyResponse {
+  id: string;
+  surveyId: string;
+  surveyName: string;
+  enumeratorId: string;
+  enumeratorName: string;
+  householdId: string;
+  timestamp: string;
+  answers: Record<string, any>; // questionId -> literal value
+  codedAnswers: Record<string, { code: string; label: string; confidence: number; reason: string }>; // questionId -> code suggestions
+  consentLogged: boolean;
+  consentTimestamp?: string;
+  paradata: Paradata;
+  behaviorScores: BehaviorScores;
+  validation: ValidationStatus;
+  confidenceScore: number; // Computed 0-100
+  trustBand: 'Green' | 'Amber' | 'Red';
+  status: 'approved' | 'flagged' | 're-interview';
+  nicCode?: string;
+  occupation?: string;
 }
 
 export interface Enumerator {
   id: string;
   name: string;
   region: string;
-  assigned: number;
-  completed: number;
-  trustScore: number;
-  trustLevel: TrustLevel;
-  trustTrend: number[];
+  assignedCount: number;
+  completedCount: number;
+  trustScore: number; // Cumulative 0-100
+  sparkline: number[]; // Last 7 days trust scores
+  recentFlags: {
+    responseId: string;
+    flagType: string;
+    reason: string;
+    timestamp: string;
+  }[];
 }
 
-export interface Household {
-  id: string;
-  prepop: {
-    name: string;
-    state: string;
-    district: string;
-  };
-}
-
-export interface SurveyQuestion {
-  id: string;
-  type: QuestionType;
-  prepop?: boolean;
-  codeType?: string | null;
-  options?: string[];
-  q?: Partial<Record<Language, string>>;
-  rules?: {
-    range?: [number, number];
-    crossField?: {
-      ifOccupation: string;
-      max: number;
-    };
-    contextRef?: string;
-  };
-}
-
-export interface BranchQuestion {
-  id: string;
-  q: Partial<Record<Language, string>>;
-  options?: string[];
-}
-
-export interface Survey {
-  id: string;
-  title: Record<Language, string>;
-  nodes: SurveyQuestion[];
-  branches: Record<string, BranchQuestion>;
-  metadata?: Record<string, unknown>;
-}
-
-export interface CodeRecord {
-  code: string;
-  type: 'NCO' | 'NIC' | 'ISIC';
-  label: string;
-  synonyms: string[];
-  externalSource?: string;
-}
-
-export interface Persona {
-  enumeratorId: string;
-  speedSeconds: number[];
-  answers: Record<string, string>;
-  expectedConfidence: number;
-  expectedTrust: TrustLevel;
-  expectedFlags?: ValidationLayer[];
-}
-
-export interface SeedData {
-  users: User[];
-  enumerators: Enumerator[];
-  households: Household[];
-  survey: Survey;
-  codes: CodeRecord[];
-  referenceDistributions: {
-    income: { p05: number; median: number; p95: number };
-    responseTimeSeconds: { median: number };
-  };
-  trustWeights: {
-    validation: number;
-    fraud: number;
-    evidence: number;
-    behaviour: number;
-  };
-  personas: {
-    genuine: Persona;
-    suspicious: Persona;
-  };
-}
-
-export interface ValidationLayer {
-  layer: string;
-  status: StatusLevel;
-  reason: string;
-}
-
-export interface CodeSuggestion {
-  code: string;
-  type: string;
-  label: string;
-  confidence: number;
-  source: string;
-  reason: string;
-}
-
-export interface IntelligenceResult {
-  confidence: number;
-  trustLevel: TrustLevel;
-  decision: 'ASK' | 'SIMPLIFY' | 'SKIP' | 'REORDER';
-  nextQuestionId?: string;
-  reason: string;
-  layers: ValidationLayer[];
-  scores: {
-    engagement: number;
-    fatigue: number;
-    dropout: number;
-    quality: number;
-  };
-  breakdown: {
-    validation: number;
-    fraud: number;
-    evidence: number;
-    behaviour: number;
-  };
-  suggestion?: CodeSuggestion;
-  stored: boolean;
-}
-
-export interface LiveFlag {
-  id: string;
-  enumeratorId: string;
-  enumeratorName: string;
-  survey: string;
-  reason: string;
-  trustScore: number;
-  trustLevel: TrustLevel;
-  timestamp: string;
-}
-
-export interface Assignment {
-  id: string;
-  surveyId: string;
-  surveyTitle: string;
-  enumeratorId: string;
-  enumeratorName: string;
-  householdId: string | null;
-  household: Household['prepop'] | null;
-  status: string;
-  createdAt?: string | null;
-  autoCreated?: boolean;
-}
-
-export interface ResponseDetail {
-  id: string;
-  surveyId: string;
-  respondentId: string | null;
-  enumeratorId: string | null;
-  answers: Record<string, string>;
-  prepopulated: Record<string, unknown>;
-  qualityScore: number;
-  trustLevel: TrustLevel;
-  status: string;
-  validationFlags: ValidationLayer[];
-  paradata: {
-    totalSeconds?: number;
-    questionTimings?: Record<string, number>;
-    pauses?: number;
-    correctionCount?: number;
-    backNavCount?: number;
-    gpsLatitude?: number | null;
-    gpsLongitude?: number | null;
-    device?: string | null;
-    mode?: string | null;
-    network?: string | null;
-  } | null;
-  trust: {
-    confidence: number;
-    risk_level: string;
-    breakdown: Record<string, number>;
-    fraud_signals: string[];
-    recommendation: string;
-    reasons: string[];
-  } | null;
-}
-
-export interface CodingReviewItem {
-  id: string;
-  responseId: string | null;
-  field: string;
-  rawText: string;
-  suggestions: CodeSuggestion[];
-  suggested?: CodeSuggestion | null;
-  confidence: number;
-  source: string;
-  needsReview: boolean;
-  approvedCode?: string | null;
-  approvedLabel?: string | null;
-  surveyId?: string | null;
-  enumeratorId?: string | null;
-  status?: string | null;
-  createdAt?: string | null;
-}
-
-export interface CollectionSessionState {
+export interface IntelligenceSession {
   sessionId: string;
-  status: string;
-  assignment?: Assignment;
-  survey?: Survey & { status?: string; version?: number };
-  household?: Household | null;
-  enumerator?: Pick<Enumerator, 'id' | 'name' | 'region' | 'trustScore' | 'trustLevel' | 'trustTrend'> | null;
-  currentQuestion: SurveyQuestion | null;
-  nextQuestionId?: string | null;
-  visibleQueue: string[];
-  answers: Record<string, string>;
-  intelligence: IntelligenceResult | null;
-  complete: boolean;
-}
-
-export interface AnalyticsSnapshot {
-  responsesToday: number;
-  flagged: number;
-  averageConfidence: number;
-  activeEnumerators: number;
-  totalResponses: number;
-  validatedRate: number;
-  errorRate: number;
-  ruralUrban: [number, number];
-  genderRatio: { male: number; female: number };
+  currentStep: number;
+  answers: Record<string, any>;
+  paradata: Paradata;
+  behaviorScores: BehaviorScores;
+  validation: ValidationStatus;
   confidenceScore: number;
-  stateValidation: Array<{ state: string; rate: number }>;
-  enumeratorRanking: Array<Enumerator & { responses: number; errorRate: number; flaggedRate: number }>;
-  responseTrend: Array<{ label: string; responses: number; flagged: number }>;
-  sectorDistribution: Array<{ sector: string; value: number }>;
-  confidenceDistribution: Array<{ bucket: string; count: number }>;
+  trustBand: 'Green' | 'Amber' | 'Red';
+  nextAction: 'ASK' | 'SIMPLIFY' | 'SKIP' | 'REORDER';
+  nextActionReason: string;
 }
 
-export interface ApiResponse<T> {
-  data: T;
-  source: 'api' | 'queued';
+export interface NationalMetrics {
+  responsesToday: number;
+  flaggedCount: number;
+  avgConfidence: number;
+  activeEnumerators: number;
 }

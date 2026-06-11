@@ -329,6 +329,7 @@ async def update_adaptive_logic_endpoint(rule_id: str, request: Dict[str, Any]):
         db.close()
 
 
+
 @router.delete("/adaptive-logic/{rule_id}", dependencies=[Depends(require_scope("survey:write"))])
 async def delete_adaptive_logic_endpoint(rule_id: str):
     from app.services.validation_service import delete_adaptive_logic
@@ -349,6 +350,10 @@ async def question_bank():
 async def codes(
     type: str | None = Query(default=None, alias="type"),
     q: str | None = Query(default=None),
+    sector: str | None = Query(default=None),
+    section: str | None = Query(default=None),
+    parent_code: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=2000),
 ):
     from models.platform import ClassificationCode
 
@@ -357,7 +362,13 @@ async def codes(
         query = db.query(ClassificationCode)
         if type:
             query = query.filter(ClassificationCode.code_type == type.upper())
-        rows = query.limit(500).all()
+        if sector:
+            query = query.filter(ClassificationCode.sector == sector)
+        if section:
+            query = query.filter(ClassificationCode.section == section.upper())
+        if parent_code:
+            query = query.filter(ClassificationCode.parent_code == parent_code)
+        rows = query.order_by(ClassificationCode.code).limit(limit).all()
         results = [
             {
                 "code": r.code,
@@ -365,6 +376,11 @@ async def codes(
                 "label": r.label,
                 "synonyms": r.synonyms or [],
                 "externalSource": r.external_source,
+                "family": r.family,
+                "sector": r.sector,
+                "level": r.level,
+                "section": r.section,
+                "parentCode": r.parent_code,
             }
             for r in rows
         ]
@@ -376,8 +392,47 @@ async def codes(
                 if needle in c.get("label", "").lower()
                 or needle in c.get("code", "").lower()
                 or any(needle in str(s).lower() for s in c.get("synonyms", []) or [])
+                or needle in (c.get("family") or "").lower()
+                or needle in (c.get("sector") or "").lower()
             ]
         return {"codes": results}
+    finally:
+        db.close()
+
+
+@router.get("/codes/stats", dependencies=[Depends(require_scope("survey:read"))])
+async def code_stats():
+    from sqlalchemy import func as sa_func
+
+    from models.platform import ClassificationCode
+
+    db = _open_db()
+    try:
+        rows = (
+            db.query(ClassificationCode.code_type, sa_func.count(ClassificationCode.id))
+            .group_by(ClassificationCode.code_type)
+            .all()
+        )
+        stats = {code_type: count for code_type, count in rows}
+        stats["total"] = sum(stats.values())
+
+        sectors = (
+            db.query(ClassificationCode.sector)
+            .filter(ClassificationCode.sector.isnot(None))
+            .distinct()
+            .all()
+        )
+        sections = (
+            db.query(ClassificationCode.section)
+            .filter(ClassificationCode.section.isnot(None))
+            .distinct()
+            .all()
+        )
+        return {
+            "stats": stats,
+            "sectors": sorted(s[0] for s in sectors if s[0]),
+            "sections": sorted(s[0] for s in sections if s[0]),
+        }
     finally:
         db.close()
 

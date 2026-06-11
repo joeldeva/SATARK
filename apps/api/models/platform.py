@@ -260,6 +260,11 @@ class ClassificationCode(Base):
     label = Column(String(255), nullable=False)
     synonyms = Column(JSON_DOCUMENT, default=list, nullable=False)
     external_source = Column(String(120))
+    family = Column(String(255), nullable=True)
+    sector = Column(String(255), nullable=True, index=True)
+    level = Column(String(24), nullable=True)
+    section = Column(String(24), nullable=True, index=True)
+    parent_code = Column(String(32), nullable=True, index=True)
 
 
 class AuditLog(Base):

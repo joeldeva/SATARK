@@ -68,6 +68,9 @@ desktop.ini
 htmlcov/
 .pytest_cache/
 
+# WhatsApp Bot (Baileys auth session)
+apps/whatsapp/auth_info_baileys/
+
 # Kiro internal
 .kiro/
 .vercel

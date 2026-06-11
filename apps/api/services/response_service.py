@@ -330,15 +330,76 @@ def _response_to_flag(db, row: Response) -> dict[str, Any]:
         .order_by(ValidationResult.created_at.asc())
         .first()
     )
+    
+    # Fetch all validations
+    validations = (
+        db.query(ValidationResult)
+        .filter(ValidationResult.response_id == row.id)
+        .order_by(ValidationResult.created_at.asc())
+        .all()
+    )
+    
+    # Fetch coding results
+    coding_results = db.query(CodingResult).filter(CodingResult.response_id == row.id).all()
+    coded_answers = {}
+    for cr in coding_results:
+        code = "None"
+        label = "Uncoded freeform text"
+        if cr.approved_code:
+            code = cr.approved_code
+            label = cr.approved_label or ""
+        elif cr.suggestions and isinstance(cr.suggestions, list) and len(cr.suggestions) > 0:
+            top = cr.suggestions[0]
+            if isinstance(top, dict):
+                code = top.get("code") or "None"
+                label = top.get("label") or ""
+        coded_answers[cr.field] = {
+            "code": code,
+            "label": label,
+            "confidence": cr.confidence,
+            "reason": f"Classification mapping for {cr.field}",
+        }
+
+    # Fetch paradata
+    paradata = (
+        db.query(Paradata)
+        .filter(Paradata.response_id == row.id)
+        .order_by(Paradata.created_at.desc())
+        .first()
+    )
+
     return {
         "id": str(row.id),
+        "surveyId": row.survey_id,
+        "survey": survey.title if survey else row.survey_id,
         "enumeratorId": row.enumerator_id or "unassigned",
         "enumeratorName": enumerator.name if enumerator else row.enumerator_id or "Unassigned",
-        "survey": survey.title if survey else row.survey_id,
+        "householdId": row.household_id or "unassigned",
+        "answers": row.answers or {},
+        "codedAnswers": coded_answers,
+        "validationFlags": [
+            {"layer": item.layer, "status": item.status, "reason": item.reason}
+            for item in validations
+        ],
         "reason": validation.reason if validation else "Trust score marked this response for review",
         "trustScore": row.confidence_score or 0,
         "trustLevel": row.trust_level or "Amber",
+        "status": row.status,
         "timestamp": row.created_at.isoformat() if row.created_at else "",
+        "paradata": None
+        if not paradata
+        else {
+            "totalSeconds": paradata.total_seconds,
+            "questionTimings": paradata.question_timings,
+            "pauses": paradata.pauses,
+            "correctionCount": paradata.correction_count,
+            "backNavCount": paradata.back_nav_count,
+            "gpsLatitude": paradata.gps_lat,
+            "gpsLongitude": paradata.gps_lng,
+            "device": paradata.device,
+            "mode": paradata.mode,
+            "network": paradata.network,
+        },
     }
 
 

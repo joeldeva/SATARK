@@ -205,3 +205,22 @@ def test_collection_review_dashboard_endpoints_persist(monkeypatch):
         assert db.query(AuditLog).count() >= 1
     finally:
         db.close()
+
+
+def test_classification_codes_endpoints_persist():
+    client = _client()
+    sdrd = _token(client, "sdrd", "design123")
+
+    # Test GET /api/codes
+    res = client.get("/api/codes", headers=sdrd)
+    assert res.status_code == 200
+    assert "codes" in res.json()
+
+    # Test GET /api/codes/stats
+    stats_res = client.get("/api/codes/stats", headers=sdrd)
+    assert stats_res.status_code == 200
+    data = stats_res.json()
+    assert "stats" in data
+    assert "sectors" in data
+    assert "sections" in data
+
