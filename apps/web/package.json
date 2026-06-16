@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --port=3001 --host=127.0.0.1",
     "build": "vite build",
+    "build:hosting": "vite build && node scripts/build-hosting.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"

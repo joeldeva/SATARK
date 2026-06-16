@@ -82,7 +82,10 @@ class RuleEngine:
         status: Status,
         field: str | None,
         reason: str,
+        confidence: float | None = None,
     ) -> CheckResult:
+        if confidence is None:
+            confidence = 100.0 if status is Status.PASS else 55.0 if status is Status.WARN else 10.0
         return CheckResult(
             layer=_LAYER_FOR.get(rule.get("rule_type"), "rule"),
             field=field,
@@ -94,6 +97,7 @@ class RuleEngine:
                 "review"       if status is Status.WARN else
                 None
             ),
+            confidence=max(0.0, min(100.0, confidence)),
         )
 
     # ── Check implementations ─────────────────────────────────────────────────
@@ -106,11 +110,15 @@ class RuleEngine:
             return self._mk(rule, Status.FAIL, f, f"{f} is not a number")
         lo, hi = p.get("min"), p.get("max")
         if (lo is not None and v < lo) or (hi is not None and v > hi):
+            span = (hi - lo) if (lo is not None and hi is not None and hi > lo) else max(abs(v), 1)
+            overflow = max((lo - v) if lo is not None else 0, (v - hi) if hi is not None else 0, 0) / span
+            confidence = max(0.0, 40.0 - overflow * 40.0)
             return self._mk(
                 rule, Status.FAIL, f,
                 f"{f}={v:g} outside allowed range [{lo}, {hi}]",
+                confidence=confidence,
             )
-        return self._mk(rule, Status.PASS, f, f"{f}={v:g} within range")
+        return self._mk(rule, Status.PASS, f, f"{f}={v:g} within range", confidence=100.0)
 
     def _check_required(self, rule: dict, ctx: ValidationContext) -> CheckResult:
         f = rule["params"]["field"]
@@ -148,15 +156,33 @@ class RuleEngine:
         f = p["field"]
         v = _num(ctx.answers.get(f))
         band = ctx.reference.get(p["ref_key"], {})
-        lo, hi = band.get("p05"), band.get("p95")
+        lo, hi, median = band.get("p05"), band.get("p95"), band.get("median")
+        stratum = band.get("stratum", "all")
         if v is None or lo is None or hi is None:
             return self._mk(rule, Status.PASS, f, "no reference band available — skipped")
-        if v < lo or v > hi:
+        median_txt = f", median {median:g}" if isinstance(median, (int, float)) else ""
+        span = (hi - lo) if hi > lo else 1
+        if v > hi:
+            overflow = (v - hi) / span
+            confidence = max(10.0, 60.0 - overflow * 50.0)
             return self._mk(
                 rule, Status.WARN, f,
-                f"{f}={v:g} outside regional range [{lo:g}–{hi:g}]",
+                f"{f}={v:g} is above the 95th-percentile ceiling {hi:g} for {stratum}{median_txt}",
+                confidence=confidence,
             )
-        return self._mk(rule, Status.PASS, f, f"{f}={v:g} within regional range")
+        if v < lo:
+            underflow = (lo - v) / span
+            confidence = max(10.0, 60.0 - underflow * 50.0)
+            return self._mk(
+                rule, Status.WARN, f,
+                f"{f}={v:g} is below the 5th-percentile floor {lo:g} for {stratum}{median_txt}",
+                confidence=confidence,
+            )
+        center = median if isinstance(median, (int, float)) else (lo + hi) / 2
+        half = max(hi - center, center - lo, 1)
+        deviation = min(abs(v - center) / half, 1.0)
+        confidence = 100.0 - 30.0 * deviation
+        return self._mk(rule, Status.PASS, f, f"{f}={v:g} is within the reference band [{lo:g}-{hi:g}] for {stratum}", confidence=confidence)
 
     def _check_logic(self, rule: dict, ctx: ValidationContext) -> CheckResult:
         p = rule["params"]

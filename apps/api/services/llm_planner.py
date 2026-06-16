@@ -27,6 +27,8 @@ class LocalLLMPlanner:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.required = required
+        self.planner_name = "local_llm"
+        self.provider = "ollama"
         self.deterministic_parser = PromptParser()
         self._last_assist_framework = None
 
@@ -169,7 +171,7 @@ Rules:
             num_questions=num_questions,
             special_requirements=special[:10],
             language=language,
-            planner="local_llm",
+            planner=self.planner_name,
             planner_model=self.model,
             planner_confidence=self._safe_int(payload.get("confidence")),
             planner_reason=str(payload.get("reason") or "Local LLM extracted structured survey intent."),
@@ -263,6 +265,79 @@ Rules:
             return max(0, min(int(value), 100))
         except (TypeError, ValueError):
             return None
+
+
+class OpenRouterPlanner(LocalLLMPlanner):
+    """Online survey intent planner backed by OpenRouter (OpenAI-compatible).
+
+    Reuses the deterministic prompt / JSON-extraction / normalisation of the
+    base planner; only the transport differs. Assist lane only — the verdict
+    lane never calls this.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        base_url: str = "https://openrouter.ai/api/v1",
+        timeout_seconds: int = 45,
+        required: bool = True,
+    ):
+        super().__init__(model=model, base_url=base_url, timeout_seconds=timeout_seconds, required=required)
+        self.api_key = api_key
+        self.planner_name = "openrouter"
+        self.provider = "openrouter"
+
+    def plan(self, prompt: str) -> ParsedIntent:
+        try:
+            raw = self._call_openrouter(prompt)
+            payload = self._extract_json(raw)
+            return self._normalize(payload, prompt)
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"OpenRouter planner failed for model '{self.model}'. Check OPENROUTER_API_KEY and connectivity."
+            ) from exc
+
+    def _call_openrouter(self, prompt: str) -> str:
+        request_body = {
+            "model": self.model,
+            "temperature": 0.1,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are SATARK's survey intent planner for official statistics. "
+                        "Return ONLY valid JSON (no markdown). Extract intent and propose draft survey questions. "
+                        "The SATARK rule engine will validate, reorder, and mark model-drafted questions before use."
+                    ),
+                },
+                {"role": "user", "content": self._prompt(prompt)},
+            ],
+        }
+        data = json.dumps(request_body).encode("utf-8")
+        request = urllib.request.Request(
+            f"{self.base_url}/chat/completions",
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+                "HTTP-Referer": "https://satark.gov.in",
+                "X-Title": "SATARK Survey Intelligence",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                body = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "ignore")[:300]
+            raise RuntimeError(f"OpenRouter HTTP {exc.code}: {detail}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"OpenRouter request failed: {exc}") from exc
+        choices = body.get("choices") or []
+        if not choices:
+            raise RuntimeError(f"OpenRouter returned no choices: {str(body)[:200]}")
+        return str(choices[0].get("message", {}).get("content", ""))
 
 
 def intent_trace(intent: ParsedIntent) -> dict[str, Any]:

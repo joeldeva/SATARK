@@ -62,6 +62,7 @@ desktop.ini
 *.index
 *.pkl
 *.joblib
+data/chroma/
 
 # Test coverage
 .coverage

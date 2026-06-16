@@ -23,6 +23,16 @@ export interface ValidationRule {
   severity: 'fail' | 'warn';
 }
 
+export interface SourceTrace {
+  source_document: string;
+  section: string;
+  question_id: string;
+  language: string;
+  confidence?: number;
+  retrieved_context?: string;
+  generated_reason?: string;
+}
+
 export interface Question {
   id: string;
   block: string; // e.g., "Block 1: Demographics"
@@ -37,10 +47,28 @@ export interface Question {
   conditionalShow?: string; // expression like "Q_OCCUPATION !== 'Student'"
   autoCodeAs?: 'None' | 'NCO' | 'NIC' | 'ISIC';
   validationRules?: ValidationRule[];
+  sourceTrace?: SourceTrace;
+  generatedReason?: string;
+  retrievalConfidence?: number;
 }
 
 export interface Survey {
   id: string;
+  ddiId?: string;
+  shortName?: string;
+  year?: string;
+  organization?: string;
+  country?: string;
+  surveyType?: string;
+  coverageArea?: string;
+  targetPopulation?: string;
+  mode?: 'CAPI' | 'CATI' | 'Web' | 'WhatsApp' | 'IVR' | 'Voice Avatar' | 'Mixed';
+  enumeratorCount?: number;
+  coverage?: number;
+  qualityScore?: number;
+  issues?: number;
+  lifecycle?: SurveyLifecycleStage[];
+  channels?: CollectionChannel[];
   name_en: string;
   name_hi: string;
   name_ta: string;
@@ -49,9 +77,36 @@ export interface Survey {
   questions: Question[];
 }
 
+export interface SurveyLifecycleStage {
+  stage: 'Created' | 'Published' | 'Deployed' | 'Collected' | 'Validated' | 'Processed' | 'Approved' | 'Exported';
+  status: 'complete' | 'active' | 'pending' | 'issue';
+  records: string;
+  issues: number;
+  trust: number;
+  audit: string;
+}
+
+export interface PincodeLocation {
+  pincode: string;
+  state: string;
+  district: string;
+  locality: string;
+  lat: number;
+  lng: number;
+}
+
+export interface CollectionChannel {
+  id: 'ivr' | 'whatsapp' | 'voice_avatar' | 'web' | 'mobile';
+  label: string;
+  status: 'Active' | 'Ready' | 'Paused';
+  endpoint: string;
+  sessionsToday: number;
+  lastSync: string;
+}
+
 export interface ClassificationCode {
   code: string;
-  type: 'NCO' | 'NIC' | 'ISIC';
+  type: 'NCO' | 'NIC' | 'ISIC' | 'LGD' | 'LGD_DISTRICT';
   label_en: string;
   label_hi: string;
   label_ta: string;
@@ -83,6 +138,16 @@ export interface ValidationStatus {
   layer5_cross: { status: 'pass' | 'fail' | 'warn'; reason: string }; // Logical contradictions
 }
 
+// Per-method confidence + proof: which method ran, its score, and whether it flagged.
+export interface ValidationMethod {
+  name: string;            // Completeness | Range | Cross-field | Context | Behaviour
+  method?: string;         // human description of the technique used
+  status: 'pass' | 'fail' | 'warn' | string;
+  reason: string;          // plain-language proof
+  confidence?: number;     // 0..100
+  flagged?: boolean;
+}
+
 export interface SurveyResponse {
   id: string;
   surveyId: string;
@@ -98,6 +163,8 @@ export interface SurveyResponse {
   paradata: Paradata;
   behaviorScores: BehaviorScores;
   validation: ValidationStatus;
+  methods?: ValidationMethod[]; // per-method confidence + proof
+  flaggedBy?: string[];
   confidenceScore: number; // Computed 0-100
   trustBand: 'Green' | 'Amber' | 'Red';
   status: 'approved' | 'flagged' | 're-interview';
@@ -128,10 +195,14 @@ export interface IntelligenceSession {
   paradata: Paradata;
   behaviorScores: BehaviorScores;
   validation: ValidationStatus;
+  methods?: ValidationMethod[]; // per-method confidence + proof
+  flaggedBy?: string[];
   confidenceScore: number;
   trustBand: 'Green' | 'Amber' | 'Red';
   nextAction: 'ASK' | 'SIMPLIFY' | 'SKIP' | 'REORDER';
   nextActionReason: string;
+  nextQuestionId?: string;
+  visibleQueue?: string[];
 }
 
 export interface NationalMetrics {

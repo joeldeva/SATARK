@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
+
+from services import hash_chain
 
 from models.platform import (
     Assignment,
@@ -55,7 +59,7 @@ def store_collection_response(
             speed_mode=speed_mode,
             elapsed_seconds=elapsed_seconds,
             rules=_rules_for_survey(db, survey_id),
-            reference=_reference(db),
+            reference=_reference(db, answers),
             enumerator=enumerator_ctx,
         )
 
@@ -73,10 +77,31 @@ def store_collection_response(
         trust_level=trust_level,
         status=status,
     )
+
+    # ── Tamper-evident hash chain (sealed in this same transaction) ──────────
+    response.id = uuid.uuid4()
+    response.created_at = datetime.now(timezone.utc)
+    paradata_values = _paradata_values(answers, speed_mode, elapsed_seconds, payload)
+    hash_chain.acquire_chain_lock(db)
+    prev_hash, chain_index = hash_chain.previous_link(db)
+    chain_basis = hash_chain.chain_payload(
+        response_id=str(response.id),
+        survey_id=response.survey_id,
+        enumerator_id=response.enumerator_id,
+        answers=response.answers,
+        paradata=hash_chain.stable_paradata(paradata_values),
+        confidence=response.confidence_score,
+        trust_level=response.trust_level,
+        submitted_at=hash_chain.iso_seconds(response.created_at),
+    )
+    response.prev_hash = prev_hash
+    response.chain_index = chain_index
+    response.content_hash = hash_chain.compute_hash(prev_hash, chain_basis)
+
     db.add(response)
     db.flush()
 
-    paradata = _paradata_from_result(response.id, answers, speed_mode, elapsed_seconds, payload)
+    paradata = Paradata(response_id=response.id, **paradata_values)
     db.add(paradata)
 
     native_trust = intelligence["native_trust"]
@@ -103,6 +128,7 @@ def store_collection_response(
                 severity="error" if status_value == "fail" else "warning" if status_value == "warn" else "info",
                 reason=layer["reason"],
                 recommended_action=native_trust["recommendation"],
+                confidence=layer.get("confidence"),
             )
         )
 
@@ -128,6 +154,16 @@ def store_collection_response(
             entity_id=str(response.id),
             payload={"surveyId": survey_id, "assignmentId": assignment_id, "status": status},
             reason=f"Response submitted with {trust_level} trust level and confidence {intelligence['confidence']}",
+        )
+    )
+    db.add(
+        AuditLog(
+            actor=enumerator_id or "collection-client",
+            action="response.sealed",
+            entity_type="response",
+            entity_id=str(response.id),
+            payload={"hash": response.content_hash, "prev_hash": response.prev_hash, "chain_index": response.chain_index},
+            reason=f"Response sealed into tamper-evident chain at index {response.chain_index} with hash {response.content_hash[:12]}…",
         )
     )
     db.commit()
@@ -193,8 +229,15 @@ def response_detail(db, response_id: str) -> dict[str, Any] | None:
         "qualityScore": row.confidence_score,
         "trustLevel": row.trust_level,
         "status": row.status,
+        "integrity": {
+            "sealed": bool(row.content_hash),
+            "hash": row.content_hash,
+            "hashShort": (row.content_hash or "")[:12],
+            "chainIndex": row.chain_index,
+            "prevHash": row.prev_hash,
+        },
         "validationFlags": [
-            {"layer": item.layer, "status": item.status, "reason": item.reason}
+            {"layer": item.layer, "status": item.status, "reason": item.reason, "confidence": item.confidence}
             for item in validations
         ],
         "paradata": None
@@ -240,20 +283,13 @@ def _rules_for_survey(db, survey_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def _reference(db) -> dict[str, Any]:
+def _reference(db, answers: dict[str, Any] | None = None) -> dict[str, Any]:
+    from services.reference import resolve_reference
+
     rows = db.query(ReferenceDistribution).all()
     if not rows:
         raise HTTPException(status_code=409, detail="No reference distributions configured")
-    return {
-        row.key: {
-            "stratum": row.stratum,
-            "p05": row.p05,
-            "median": row.median,
-            "p95": row.p95,
-            "params": row.params or {},
-        }
-        for row in rows
-    }
+    return resolve_reference(rows, answers)
 
 
 def _enumerator_context(db, enumerator_id: str | None) -> dict[str, Any] | None:
@@ -304,21 +340,20 @@ def _elapsed_seconds_from_payload(payload: dict[str, Any], intelligence: dict[st
     return 90
 
 
-def _paradata_from_result(response_id, answers: dict[str, Any], speed_mode: str, elapsed_seconds: float, payload: dict[str, Any]) -> Paradata:
+def _paradata_values(answers: dict[str, Any], speed_mode: str, elapsed_seconds: float, payload: dict[str, Any]) -> dict[str, Any]:
     seconds = max(1, int(round(elapsed_seconds)))
-    return Paradata(
-        response_id=response_id,
-        total_seconds=int(payload.get("durationSeconds") or seconds * max(len(answers), 1)),
-        question_timings={key: seconds for key in answers},
-        pauses=int(payload.get("pauses") or 0),
-        correction_count=int(payload.get("correctionCount") or (0 if speed_mode == "too-fast" else 1)),
-        back_nav_count=int(payload.get("backNavCount") or 0),
-        gps_lat=payload.get("gpsLatitude"),
-        gps_lng=payload.get("gpsLongitude"),
-        device=payload.get("device"),
-        mode=payload.get("mode") or "web",
-        network=payload.get("network"),
-    )
+    return {
+        "total_seconds": int(payload.get("durationSeconds") or seconds * max(len(answers), 1)),
+        "question_timings": {key: seconds for key in answers},
+        "pauses": int(payload.get("pauses") or 0),
+        "correction_count": int(payload.get("correctionCount") or (0 if speed_mode == "too-fast" else 1)),
+        "back_nav_count": int(payload.get("backNavCount") or 0),
+        "gps_lat": payload.get("gpsLatitude"),
+        "gps_lng": payload.get("gpsLongitude"),
+        "device": payload.get("device"),
+        "mode": payload.get("mode") or "web",
+        "network": payload.get("network"),
+    }
 
 
 def _response_to_flag(db, row: Response) -> dict[str, Any]:
@@ -378,7 +413,7 @@ def _response_to_flag(db, row: Response) -> dict[str, Any]:
         "answers": row.answers or {},
         "codedAnswers": coded_answers,
         "validationFlags": [
-            {"layer": item.layer, "status": item.status, "reason": item.reason}
+            {"layer": item.layer, "status": item.status, "reason": item.reason, "confidence": item.confidence}
             for item in validations
         ],
         "reason": validation.reason if validation else "Trust score marked this response for review",

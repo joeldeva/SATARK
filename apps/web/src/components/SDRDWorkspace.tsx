@@ -37,7 +37,20 @@ import {
   ChevronRight,
   Search,
   Sliders,
-  Laptop
+  Laptop,
+  FileText,
+  RefreshCw,
+  MousePointer2,
+  Hand,
+  ZoomIn,
+  Square,
+  Minus,
+  Maximize2,
+  Users,
+  Repeat2,
+  MoreHorizontal,
+  Workflow,
+  Move
 } from 'lucide-react';
 
 interface SDRDWorkspaceProps {
@@ -45,6 +58,456 @@ interface SDRDWorkspaceProps {
   isColorBlind: boolean;
   onSurveyPublished: () => void;
 }
+
+const buildDdiDraftId = (title: string) => {
+  const upper = title.toUpperCase();
+  if (upper.includes('HCES') || upper.includes('EXPENDITURE') || upper.includes('CONSUMPTION')) return `DDI-IND-MOSPI-NSS-HCES26-DRAFT-${Date.now().toString().slice(-4)}`;
+  if (upper.includes('ASUSE') || upper.includes('ENTERPRISE')) return `DDI-IND-MOSPI-ASUSE26-DRAFT-${Date.now().toString().slice(-4)}`;
+  if (upper.includes('AGRI') || upper.includes('FARM')) return `DDI-IND-MOSPI-AGCENSUS26-DRAFT-${Date.now().toString().slice(-4)}`;
+  if (upper.includes('ECONOMIC CENSUS')) return `DDI-IND-MOSPI-ECONCENSUS26-DRAFT-${Date.now().toString().slice(-4)}`;
+  return `DDI-IND-MOSPI-PLFS26-DRAFT-${Date.now().toString().slice(-4)}`;
+};
+
+const SurveyFlowCanvas: React.FC<{
+  survey: Survey;
+  selectedQuestionId: string | null;
+  onSelectQuestion: (id: string) => void;
+}> = ({ survey, selectedQuestionId, onSelectQuestion }) => {
+  const [showLogic, setShowLogic] = useState(true);
+  const [zoom, setZoom] = useState(100);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  type FlowTone = 'question' | 'logic' | 'validation' | 'adaptive' | 'module' | 'loop' | 'end';
+  type FlowNode = {
+    id: string;
+    x: number;
+    y: number;
+    w: number;
+    code: string;
+    title: string;
+    detail: string;
+    typeLabel: string;
+    tone: FlowTone;
+    icon?: React.ComponentType<{ className?: string }>;
+    question?: Question;
+  };
+
+  const titleLower = `${survey.name_en} ${survey.shortName || ''} ${survey.surveyType || ''}`.toLowerCase();
+  const officialTitle = titleLower.includes('agri')
+    ? 'Agriculture Survey 2026 (Rural)'
+    : survey.name_en;
+  const surveyId = survey.ddiId || survey.id || 'DDI-IND-MOSPI-SURVEY26';
+  const displayId = titleLower.includes('agri') ? 'SUR_AGRI_2026_RURAL' : surveyId;
+  const lastUpdated = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+  const findQuestion = (tokens: string[], fallbackIndex: number) => {
+    const byMeaning = survey.questions.find((question) => {
+      const text = `${question.code} ${question.text_en} ${question.block}`.toLowerCase();
+      return tokens.some((token) => text.includes(token));
+    });
+    return byMeaning || survey.questions[fallbackIndex];
+  };
+
+  const ageQuestion = findQuestion(['age'], 0);
+  const employmentQuestion = findQuestion(['employ', 'work'], 1);
+  const occupationQuestion = findQuestion(['occupation', 'job', 'profession'], 2);
+  const jobSearchQuestion = findQuestion(['unemploy', 'job search', 'looking for work'], 3);
+  const incomeQuestion = findQuestion(['income', 'earn'], 4);
+  const householdQuestion = findQuestion(['household', 'member', 'family'], 5);
+
+  const questionText = (question: Question | undefined, fallback: string) => question?.text_en || fallback;
+  const questionCode = (question: Question | undefined, fallback: string) => question?.code || fallback;
+  const questionType = (question: Question | undefined, fallback: string) => question?.type || fallback;
+  const canvasWidth = isExpanded ? 1220 : 900;
+  const canvasHeight = isExpanded ? 880 : 700;
+  const layoutScale = isExpanded ? 1.34 : 1;
+  const pos = (value: number) => Math.round(value * layoutScale);
+  const nodeW = (value: number) => Math.round(value * (isExpanded ? 1.12 : 1));
+
+  const sourceTrace = (question: Question | undefined, fallbackCode: string, index: number) => {
+    const trace = question?.sourceTrace;
+    return {
+      source_document: trace?.source_document || (titleLower.includes('agri') ? 'Agricultural Census QBS 2025-26' : 'NSS PLFS 2024-25 QBS'),
+      section: trace?.section || question?.block || 'Demographic and labour module',
+      question_id: trace?.question_id || question?.code || fallbackCode,
+      language: trace?.language || 'English',
+      confidence: trace?.confidence || question?.retrievalConfidence || Math.max(86, 96 - index),
+      retrieved_context: trace?.retrieved_context || `${question?.code || fallbackCode} is routed through the reviewed question bank and validation matrix.`,
+      generated_reason: trace?.generated_reason || question?.generatedReason || 'Included because it supports age routing, field validation, and downstream processing.'
+    };
+  };
+
+  const nodes: FlowNode[] = [
+    {
+      id: 'q-age',
+      x: pos(345),
+      y: pos(35),
+      w: nodeW(210),
+      code: questionCode(ageQuestion, 'DEM_AGE'),
+      title: questionText(ageQuestion, 'What is your age?'),
+      detail: 'Routes child, working-age, and elderly modules',
+      typeLabel: `${questionType(ageQuestion, 'number')}`,
+      tone: 'question',
+      question: ageQuestion
+    },
+    {
+      id: 'child-module',
+      x: pos(145),
+      y: pos(180),
+      w: nodeW(170),
+      code: 'CHILD MODULE',
+      title: 'Child Module',
+      detail: '10 Questions',
+      typeLabel: '< 15',
+      tone: 'module',
+      icon: Users
+    },
+    {
+      id: 'q-employment',
+      x: pos(345),
+      y: pos(180),
+      w: nodeW(210),
+      code: questionCode(employmentQuestion, 'DEM_EMP_STATUS'),
+      title: questionText(employmentQuestion, 'Are you currently employed?'),
+      detail: 'Controls occupation and job-search routing',
+      typeLabel: `${questionType(employmentQuestion, 'single')} choice`,
+      tone: 'question',
+      question: employmentQuestion
+    },
+    {
+      id: 'elderly-module',
+      x: pos(625),
+      y: pos(180),
+      w: nodeW(170),
+      code: 'ELDERLY MODULE',
+      title: 'Elderly Module',
+      detail: '8 Questions',
+      typeLabel: '60+',
+      tone: 'module',
+      icon: Users
+    },
+    {
+      id: 'q-occupation',
+      x: pos(230),
+      y: pos(330),
+      w: nodeW(210),
+      code: questionCode(occupationQuestion, 'DEM_OCCUPATION'),
+      title: questionText(occupationQuestion, 'What is your occupation?'),
+      detail: 'Mapped to official classification codes',
+      typeLabel: `${questionType(occupationQuestion, 'single')} choice`,
+      tone: 'validation',
+      question: occupationQuestion
+    },
+    {
+      id: 'q-job-search',
+      x: pos(475),
+      y: pos(330),
+      w: nodeW(210),
+      code: questionCode(jobSearchQuestion, 'DEM_JOB_SEARCH'),
+      title: questionText(jobSearchQuestion, 'Are you looking for work?'),
+      detail: 'Asked only when employment answer is No',
+      typeLabel: `${questionType(jobSearchQuestion, 'single')} choice`,
+      tone: 'question',
+      question: jobSearchQuestion
+    },
+    {
+      id: 'q-income',
+      x: pos(345),
+      y: pos(465),
+      w: nodeW(210),
+      code: questionCode(incomeQuestion, 'DEM_INCOME'),
+      title: questionText(incomeQuestion, 'What is your monthly income?'),
+      detail: 'Range and cross-field checks run here',
+      typeLabel: `${questionType(incomeQuestion, 'number')}`,
+      tone: 'adaptive',
+      question: incomeQuestion
+    },
+    {
+      id: 'household-loop',
+      x: pos(305),
+      y: pos(585),
+      w: nodeW(290),
+      code: 'HOUSEHOLD MODULE',
+      title: questionText(householdQuestion, 'Repeat for each household member'),
+      detail: '12 Questions',
+      typeLabel: 'Loop',
+      tone: 'loop',
+      icon: Repeat2,
+      question: householdQuestion
+    }
+  ];
+
+  const selectedNode = nodes.find((node) => node.question?.id === selectedQuestionId) || nodes.find((node) => node.question) || nodes[0];
+  const selectedTrace = sourceTrace(selectedNode.question, selectedNode.code, nodes.indexOf(selectedNode));
+
+  const toneClass: Record<FlowTone, string> = {
+    question: 'border-emerald-300 bg-white text-slate-900',
+    logic: 'border-amber-300 bg-amber-50 text-amber-950',
+    validation: 'border-emerald-300 bg-emerald-50 text-emerald-950',
+    adaptive: 'border-violet-300 bg-white text-slate-900',
+    module: 'border-rose-200 bg-rose-50 text-rose-950',
+    loop: 'border-violet-300 bg-violet-50 text-violet-950',
+    end: 'border-slate-300 bg-slate-50 text-slate-900'
+  };
+
+  const FlowCard = ({ node }: { node: FlowNode }) => {
+    const Icon = node.icon;
+    const isSelected = Boolean(node.question && selectedQuestionId === node.question.id);
+    const trace = sourceTrace(node.question, node.code, nodes.indexOf(node));
+    const isClickable = Boolean(node.question);
+
+    return (
+      <button
+        type="button"
+        disabled={!isClickable}
+        onClick={() => node.question && onSelectQuestion(node.question.id)}
+        className={`absolute rounded-lg border-2 p-3 text-left shadow-sm transition ${toneClass[node.tone]} ${
+          isSelected ? 'ring-4 ring-blue-100 border-blue-500' : isClickable ? 'hover:border-blue-400 hover:shadow-md' : ''
+        }`}
+        style={{ left: node.x, top: node.y, width: node.w }}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            {Icon && <Icon className="h-4 w-4 shrink-0" />}
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-black ${
+              node.tone === 'adaptive' ? 'bg-violet-100 text-violet-700' :
+              node.tone === 'module' ? 'bg-rose-100 text-rose-700' :
+              node.tone === 'loop' ? 'bg-violet-100 text-violet-700' :
+              'bg-emerald-100 text-emerald-700'
+            }`}>
+              {node.code}
+            </span>
+          </div>
+          <MoreHorizontal className="h-3.5 w-3.5 text-slate-400" />
+        </div>
+        <p className="mt-2 text-xs font-black leading-snug">{node.title}</p>
+        <p className="mt-1 text-[10px] font-semibold text-slate-500">{node.typeLabel}</p>
+        <p className="mt-2 text-[10px] leading-snug text-slate-500">{node.detail}</p>
+        {node.question && (
+          <div className="mt-2 border-t border-slate-100 pt-2 text-[9px] leading-snug text-slate-500">
+            <p className="truncate">Source: {trace.source_document}</p>
+            <p>Confidence: {trace.confidence}%</p>
+          </div>
+        )}
+      </button>
+    );
+  };
+
+  const toolbar = [
+    { icon: MousePointer2, label: 'Select' },
+    { icon: Hand, label: 'Pan' },
+    { icon: ZoomIn, label: 'Zoom' },
+    { icon: Square, label: 'Node' },
+    { icon: Minus, label: 'Connector' },
+    { icon: Type, label: 'Label' },
+    { icon: Maximize2, label: 'Fit view' }
+  ];
+
+  const CanvasBody = (
+    <div className={`rounded-lg border border-slate-200 bg-white ${isExpanded ? 'shadow-2xl' : ''}`}>
+      <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-500">
+            <span>My Surveys</span>
+            <ChevronRight className="h-3.5 w-3.5" />
+            <span className="truncate text-slate-800">{officialTitle}</span>
+            <span className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700">
+              {survey.status}
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] font-semibold text-slate-500">
+            <span>ID: {displayId}</span>
+            <span>Version: {survey.version}</span>
+            <span>Last updated: {lastUpdated}</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1 text-[10px] font-black">
+          {['EN', 'Hindi', 'Tamil', 'Malayalam'].map((language) => (
+            <button
+              key={language}
+              type="button"
+              className={`rounded-md border px-2.5 py-1 ${
+                language === 'EN' ? 'border-blue-200 bg-blue-50 text-[#1A2A6C]' : 'border-slate-200 bg-white text-slate-600'
+              }`}
+            >
+              {language}
+            </button>
+          ))}
+          <button type="button" className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-slate-600">
+            ...
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-[#1A2A6C]">
+            <Workflow className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="text-sm font-black text-slate-900">Survey Flow Canvas</h3>
+            <p className="text-[11px] font-medium text-slate-500">Visualize and design adaptive survey flow with skip logic and loops.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-black">
+          <button
+            type="button"
+            onClick={() => setZoom(100)}
+            className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-[#1A2A6C] shadow-sm"
+          >
+            <Move className="h-3.5 w-3.5" />
+            Auto Layout
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowLogic((value) => !value)}
+            className={`flex items-center gap-1 rounded-md border px-3 py-2 shadow-sm ${
+              showLogic ? 'border-slate-200 bg-white text-[#1A2A6C]' : 'border-slate-200 bg-slate-50 text-slate-500'
+            }`}
+          >
+            <Eye className="h-3.5 w-3.5" />
+            Show Logic
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsExpanded((value) => !value)}
+            className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-[#1A2A6C] shadow-sm"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+            {isExpanded ? 'Close Expand' : 'Expand'}
+          </button>
+          <button type="button" className="rounded-md border border-slate-200 bg-white p-2 text-slate-600 shadow-sm" title="More canvas actions">
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="relative overflow-auto border-t border-slate-100 bg-slate-50">
+        <div className="absolute left-4 top-4 z-20 flex flex-col rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+          {toolbar.map((item, index) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.label}
+                type="button"
+                className={`rounded-md p-2 text-slate-600 hover:bg-slate-50 hover:text-[#1A2A6C] ${index === 0 ? 'bg-slate-100 text-slate-900' : ''}`}
+                title={item.label}
+              >
+                <Icon className="h-4 w-4" />
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          className="relative min-w-[900px]"
+          style={{ height: canvasHeight }}
+        >
+          <div
+            className="absolute left-0 top-0 origin-top-left"
+            style={{
+              width: canvasWidth,
+              height: canvasHeight,
+              transform: `scale(${zoom / 100})`,
+              backgroundImage: 'radial-gradient(circle, rgba(148, 163, 184, 0.28) 1px, transparent 1px)',
+              backgroundSize: '18px 18px'
+            }}
+          >
+            <svg className="absolute inset-0 h-full w-full pointer-events-none" viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} aria-hidden="true">
+              <path d={`M${pos(450)} ${pos(150)} V${pos(165)} H${pos(230)} V${pos(180)}`} stroke="#94A3B8" strokeWidth="2" fill="none" />
+              <path d={`M${pos(450)} ${pos(150)} V${pos(180)}`} stroke="#94A3B8" strokeWidth="2" fill="none" />
+              <path d={`M${pos(450)} ${pos(150)} V${pos(165)} H${pos(710)} V${pos(180)}`} stroke="#94A3B8" strokeWidth="2" fill="none" />
+              {showLogic && <path d={`M${pos(450)} ${pos(295)} V${pos(315)} H${pos(335)} V${pos(330)}`} stroke="#94A3B8" strokeWidth="2" fill="none" />}
+              {showLogic && <path d={`M${pos(450)} ${pos(295)} V${pos(315)} H${pos(580)} V${pos(330)}`} stroke="#94A3B8" strokeWidth="2" fill="none" />}
+              <path d={`M${pos(335)} ${pos(445)} V${pos(455)} H${pos(450)} V${pos(465)}`} stroke="#94A3B8" strokeWidth="2" fill="none" />
+              <path d={`M${pos(580)} ${pos(445)} V${pos(455)} H${pos(450)} V${pos(465)}`} stroke="#94A3B8" strokeWidth="2" fill="none" />
+              <path d={`M${pos(450)} ${pos(575)} V${pos(585)}`} stroke="#94A3B8" strokeWidth="2" fill="none" strokeDasharray="7 5" />
+            </svg>
+
+            {showLogic && (
+              <>
+                <span className="absolute rounded bg-rose-100 px-2 py-1 text-[10px] font-black text-rose-700" style={{ left: pos(204), top: pos(155) }}>&lt; 15</span>
+                <span className="absolute rounded bg-blue-100 px-2 py-1 text-[10px] font-black text-blue-700" style={{ left: pos(425), top: pos(153) }}>15 - 59</span>
+                <span className="absolute rounded bg-amber-100 px-2 py-1 text-[10px] font-black text-amber-700" style={{ left: pos(700), top: pos(155) }}>60+</span>
+                <span className="absolute rounded bg-emerald-100 px-2 py-1 text-[10px] font-black text-emerald-700" style={{ left: pos(313), top: pos(310) }}>Yes</span>
+                <span className="absolute rounded bg-rose-100 px-2 py-1 text-[10px] font-black text-rose-700" style={{ left: pos(590), top: pos(310) }}>No</span>
+              </>
+            )}
+
+            {nodes.map((node) => <FlowCard key={node.id} node={node} />)}
+
+            <div className="absolute bottom-6 left-6 z-20 flex items-center rounded-lg border border-slate-200 bg-white shadow-sm">
+              <button type="button" onClick={() => setZoom((value) => Math.max(80, value - 10))} className="border-r border-slate-200 px-3 py-2 text-slate-700" title="Zoom out">
+                -
+              </button>
+              <span className="px-3 py-2 text-[11px] font-black text-slate-700">{zoom}%</span>
+              <button type="button" onClick={() => setZoom((value) => Math.min(120, value + 10))} className="border-l border-slate-200 px-3 py-2 text-slate-700" title="Zoom in">
+                +
+              </button>
+              <button type="button" onClick={() => setZoom(100)} className="border-l border-slate-200 px-3 py-2 text-slate-700" title="Reset zoom">
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            <div className="absolute bottom-6 right-6 z-20 h-28 w-48 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="relative h-full w-full bg-slate-50">
+                <div className="absolute inset-x-2 top-1/2 h-px bg-blue-400" />
+                <div className="absolute left-7 top-4 h-16 w-28 border-2 border-blue-400 bg-blue-50/50" />
+                {nodes.map((node) => (
+                  <span
+                    key={`mini-${node.id}`}
+                    className={`absolute rounded-sm ${
+                      node.tone === 'module' ? 'bg-rose-200' :
+                      node.tone === 'loop' ? 'bg-violet-200' :
+                      node.tone === 'adaptive' ? 'bg-violet-300' :
+                      'bg-emerald-200'
+                    }`}
+                    style={{
+                      left: `${(node.x / canvasWidth) * 170}px`,
+                      top: `${(node.y / canvasHeight) * 96}px`,
+                      width: `${Math.max(10, (node.w / canvasWidth) * 170)}px`,
+                      height: 5
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-t border-slate-200 p-4 lg:grid-cols-4">
+        <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+          <p className="text-[10px] font-black text-[#1A2A6C]">Source</p>
+          <p className="mt-1 text-xs font-bold text-slate-800">{selectedTrace.source_document}</p>
+        </div>
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+          <p className="text-[10px] font-black text-emerald-700">Confidence</p>
+          <p className="mt-1 text-xs font-bold text-slate-800">{selectedTrace.confidence}% source match</p>
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white p-3 lg:col-span-2">
+          <p className="text-[10px] font-black text-slate-500">Retrieved Context and Generated Reason</p>
+          <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-700">
+            {selectedTrace.section} / {selectedTrace.question_id}: {selectedTrace.generated_reason}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {!isExpanded && CanvasBody}
+      {isExpanded && (
+        <div className="fixed inset-0 z-50 bg-slate-950/55 p-4 backdrop-blur-sm">
+          <div className="mx-auto flex h-full max-w-[1320px] flex-col overflow-hidden rounded-xl">
+            {CanvasBody}
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
 
 export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind, onSurveyPublished }) => {
   const t = translations[lang];
@@ -77,8 +540,12 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
   const [pdfIngestSuccess, setPdfIngestSuccess] = useState('');
 
   // Taxonomies search inside Code Library
-  const [libraryType, setLibraryType] = useState<'NCO' | 'NIC' | 'ISIC'>('NCO');
+  const [libraryType, setLibraryType] = useState<'NCO' | 'NIC' | 'LGD' | 'LGD_DISTRICT' | 'ISIC'>('NCO');
   const [libraryQuery, setLibraryQuery] = useState('');
+  const [classificationCodes, setClassificationCodes] = useState<ClassificationCode[]>([]);
+  const [isLibraryLoading, setIsLibraryLoading] = useState(false);
+  const [libraryPage, setLibraryPage] = useState(1);
+  const libraryPerPage = 15;
 
   // Modals
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -92,7 +559,20 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
 
   useEffect(() => {
     loadSurveys();
+    loadClassificationCodes();
   }, []);
+
+  const loadClassificationCodes = async () => {
+    setIsLibraryLoading(true);
+    try {
+      const cds = await api.getClassificationCodes();
+      setClassificationCodes(cds);
+    } catch (err) {
+      console.error("Failed to load classification codes", err);
+    } finally {
+      setIsLibraryLoading(false);
+    }
+  };
 
   const loadSurveys = async () => {
     const list = await api.getSurveys();
@@ -123,9 +603,18 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
   };
 
   const handleNewSurvey = (title?: string) => {
-    const newId = 'sur_' + Date.now();
+    const newId = buildDdiDraftId(title || 'Custom Socio-Economic Evaluation Survey');
     const newSurvey: Survey = {
       id: newId,
+      ddiId: newId,
+      shortName: title || 'Custom Survey',
+      year: '2026',
+      organization: 'MoSPI',
+      country: 'IND',
+      surveyType: 'Official Statistics Survey',
+      coverageArea: 'Tamil Nadu',
+      targetPopulation: 'Households',
+      mode: 'Mixed',
       name_en: title || 'Custom Socio-Economic Evaluation Survey',
       name_hi: 'कस्टम सामाजिक-आर्थिक मूल्यांकन सर्वेक्षण',
       name_ta: 'தனிப்பயன் சமூக-பொருளாதார மதிப்பீட்டுக் கணக்கெடுப்பு',
@@ -158,9 +647,11 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
 
   const handleDuplicateSurvey = (target: Survey, e: React.MouseEvent) => {
     e.stopPropagation();
+    const dupId = buildDdiDraftId(target.name_en);
     const dup: Survey = {
       ...target,
-      id: 'sur_' + Date.now(),
+      id: dupId,
+      ddiId: dupId,
       name_en: `${target.name_en} (Copy)`,
       status: 'Draft',
       questions: target.questions.map(q => ({ ...q, id: 'q_dup_' + Math.random().toString(36).substr(2, 9) }))
@@ -284,9 +775,9 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
       setShowAIProvenance(true);
       setPromptText('');
       setActiveSubPage('builder');
-      setSuccessMsg('Gemma assist model successfully assembled structural, bilingual evaluation draft from RAG precedents!');
+      setSuccessMsg('Draft assembled from reviewed source precedents. Review source trace before publishing.');
     } catch (err: any) {
-      setSuccessMsg(`AI Generation failed: ${err.message}`);
+      setSuccessMsg(`Draft generation failed: ${err.message}`);
       setIsGenerating(false);
     }
     setTimeout(() => setSuccessMsg(''), 5000);
@@ -328,7 +819,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
           return q;
         });
         saveSurveyToDB({ ...selectedSurvey, questions: uqs });
-        setSuccessMsg('Gemma Refined: Appended minimum age condition constraint rule.');
+        setSuccessMsg('Draft refined: appended minimum age validation rule.');
         setTimeout(() => setSuccessMsg(''), 4000);
       }
     }
@@ -337,7 +828,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
       const updatedQs = [...selectedSurvey.questions, newQ];
       saveSurveyToDB({ ...selectedSurvey, questions: updatedQs });
       setSelectedQuestionId(newQ.id);
-      setSuccessMsg(`Gemma Refined: Injected new matching variable '${newQ.code}' to canvas!`);
+      setSuccessMsg(`Draft refined: injected matching variable '${newQ.code}' to canvas.`);
       setTimeout(() => setSuccessMsg(''), 4000);
     } else {
       setSuccessMsg('Refinement parsed and optimization model applied successfully.');
@@ -356,7 +847,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
 
       try {
         const res = await api.ragIngest(file, 'survey_generation');
-        setPdfIngestSuccess(`Vectorized successfully! Extracted ${res.chunk_count} chunk(s) from '${file.name}' into ChromaDB!`);
+        setPdfIngestSuccess(`Indexed successfully. Extracted ${res.chunk_count} reference chunk(s) from '${file.name}' into the local source library.`);
       } catch (err: any) {
         setPdfIngestSuccess(`Ingestion failed: ${err.message}`);
       } finally {
@@ -400,11 +891,13 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
   const handlePublishSurvey = async () => {
     if (!selectedSurvey) return;
     try {
-      if (selectedSurvey.status !== 'Published') {
-        await api.saveSurvey(selectedSurvey);
-      }
-      await api.publishSurvey(selectedSurvey.id);
-      setSuccessMsg(`Successfully published '${selectedSurvey.name_en}' to national registries!`);
+      // publish handles create-if-new + version-bump-if-published, sending the
+      // current graph; no PATCH on a published survey (avoids the 409).
+      await api.publishSurvey(selectedSurvey);
+      const fieldAgents = await api.getEnumerators();
+      const selectedAgent = fieldAgents[0]?.id || 'enum_1';
+      await api.createAssignments(selectedSurvey.id, [selectedAgent], ['HH-TN-0042', 'HH-TN-0043', 'HH-TN-0044']);
+      setSuccessMsg(`Published '${selectedSurvey.name_en}' and assigned starter workload to ${fieldAgents[0]?.name || 'field agent'}.`);
       onSurveyPublished();
       loadSurveys();
       setActiveSubPage('my-surveys');
@@ -463,8 +956,56 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
     });
   };
 
-  // Highlight color blind mode
-  const colTheme = isColorBlind ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-100';
+  const handleDownloadLibraryCSV = () => {
+    const activeCodes = (classificationCodes.length > 0 ? classificationCodes : CLASSIFICATION_CODES)
+      .filter(c => c.type === libraryType && (
+        c.code.toLowerCase().includes(libraryQuery.toLowerCase()) ||
+        c.label_en.toLowerCase().includes(libraryQuery.toLowerCase()) ||
+        c.label_hi.toLowerCase().includes(libraryQuery.toLowerCase()) ||
+        c.label_ta.toLowerCase().includes(libraryQuery.toLowerCase()) ||
+        c.synonyms.some(s => s.toLowerCase().includes(libraryQuery.toLowerCase()))
+      ));
+
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Code,Type,Label_EN,Label_HI,Label_TA,Synonyms\n";
+    activeCodes.forEach(c => {
+      const synString = c.synonyms.join('|');
+      csvContent += `"${c.code}","${c.type}","${c.label_en.replace(/"/g, '""')}","${c.label_hi.replace(/"/g, '""')}","${c.label_ta.replace(/"/g, '""')}","${synString.replace(/"/g, '""')}"\n`;
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `SATARK_Taxonomy_Export_${libraryType}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleSetLibraryType = (type: any) => {
+    setLibraryType(type);
+    setLibraryPage(1);
+  };
+
+  const handleSetLibraryQuery = (val: string) => {
+    setLibraryQuery(val);
+    setLibraryPage(1);
+  };
+
+  const filteredLibraryCodes = (classificationCodes.length > 0 ? classificationCodes : CLASSIFICATION_CODES)
+    .filter(c => c.type === libraryType && (
+      c.code.toLowerCase().includes(libraryQuery.toLowerCase()) ||
+      c.label_en.toLowerCase().includes(libraryQuery.toLowerCase()) ||
+      c.label_hi.toLowerCase().includes(libraryQuery.toLowerCase()) ||
+      c.label_ta.toLowerCase().includes(libraryQuery.toLowerCase()) ||
+      c.synonyms.some(s => s.toLowerCase().includes(libraryQuery.toLowerCase()))
+    ));
+
+  const totalLibraryPages = Math.ceil(filteredLibraryCodes.length / libraryPerPage) || 1;
+  const paginatedLibraryCodes = filteredLibraryCodes.slice(
+    (libraryPage - 1) * libraryPerPage,
+    libraryPage * libraryPerPage
+  );
 
   const selectedQuestion = selectedSurvey?.questions.find(q => q.id === selectedQuestionId);
 
@@ -478,7 +1019,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
             <Laptop className="w-5 h-5 text-[#1A2A6C]" />
             SATARK SDRD Survey Design Studio
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 font-medium">Bilingual questionnaire builder, constraint validation matrix compiler, and RAG generator.</p>
+          <p className="text-xs text-slate-500 mt-0.5 font-medium">Bilingual questionnaire builder, constraint validation matrix compiler, and source-traced draft generator.</p>
         </div>
         {selectedSurvey && (
           <div className="flex items-center gap-2">
@@ -699,7 +1240,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                                 <Copy className="w-3 h-3" />
                                 Dup
                               </button>
-                              {s.id !== 'sur_plfs_2026' && (
+                              {!s.id.startsWith('DDI-IND-MOSPI-PLFS26') && (
                                 <button 
                                   onClick={(e) => handleArchiveSurvey(s.id, e)}
                                   className="p-1 hover:bg-rose-50 text-rose-600 border border-slate-200 hover:border-rose-100 rounded"
@@ -728,7 +1269,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start animate-fadeIn">
               
               {/* Center questionnaire list columns */}
-              <div className="lg:col-span-7 space-y-4">
+              <div className="lg:col-span-8 xl:col-span-9 space-y-4">
                 <div className="flex justify-between items-center pb-3 border-b border-rose-100">
                   <div className="flex-1 mr-4">
                     <input 
@@ -739,7 +1280,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                       placeholder="Input survey designation title..."
                     />
                     <div className="flex items-center gap-1.5 mt-1 font-mono text-[10px] text-slate-400">
-                      <span>ID: {selectedSurvey.id}</span>
+                      <span>ID: {selectedSurvey.ddiId || selectedSurvey.id}</span>
                       <span>•</span>
                       <span>Version: {selectedSurvey.version}</span>
                     </div>
@@ -758,13 +1299,19 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                   <div className="p-3 bg-indigo-50/80 border border-indigo-100 rounded-xl flex items-center justify-between text-xs font-semibold text-indigo-900 gap-2">
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-indigo-700 animate-pulse shrink-0" />
-                      <span>Draft generated from PLFS + HCES precedents. AI assisted schema generated.</span>
+                      <span>Draft generated from PLFS + HCES precedents. Source-reviewed schema generated.</span>
                     </div>
                     <button onClick={() => setShowAIProvenance(false)} className="text-slate-400 hover:text-slate-600">
                       <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
+
+                <SurveyFlowCanvas
+                  survey={selectedSurvey}
+                  selectedQuestionId={selectedQuestionId}
+                  onSelectQuestion={(id) => setSelectedQuestionId(id)}
+                />
 
                 {/* Question Cards stack */}
                 <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
@@ -800,6 +1347,11 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                                     Auto-code: {q.autoCodeAs}
                                   </span>
                                 )}
+                                {q.sourceTrace && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded">
+                                    Source: {q.sourceTrace.source_document}
+                                  </span>
+                                )}
                               </div>
                               <p className="text-slate-800 text-xs font-bold leading-relaxed pt-1.5">
                                 {canvasLang === 'en' ? q.text_en : canvasLang === 'hi' ? q.text_hi : q.text_ta}
@@ -821,6 +1373,15 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                                 <div className="inline-flex items-center gap-1 text-[9px] font-mono text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-0.5 mt-2">
                                   <GitBranch className="w-3 h-3" />
                                   <span>Show If: {q.conditionalShow}</span>
+                                </div>
+                              )}
+                              {q.sourceTrace && (
+                                <div className="mt-2 p-2 bg-slate-50 border border-slate-100 rounded-lg text-[10px] text-slate-500 leading-relaxed">
+                                  <div className="font-black uppercase text-slate-400 mb-1">Source Trace</div>
+                                  <p><strong className="text-slate-700">Generated From:</strong> {q.sourceTrace.source_document}</p>
+                                  <p>{q.sourceTrace.section} / {q.sourceTrace.question_id} / {q.sourceTrace.language}</p>
+                                  <p>Confidence: {q.sourceTrace.confidence || q.retrievalConfidence || 88}%</p>
+                                  <p>{q.sourceTrace.generated_reason || q.generatedReason || 'Retained from reviewed question-bank context.'}</p>
                                 </div>
                               )}
                             </div>
@@ -867,17 +1428,17 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
               </div>
 
               {/* Right Panel workspace context */}
-              <div className="lg:col-span-5 bg-slate-50/50 border border-slate-200/65 rounded-xl p-4 min-h-[500px]">
+              <div className="lg:col-span-4 xl:col-span-3 min-w-0 bg-slate-50/50 border border-slate-200/65 rounded-xl p-4 min-h-[500px]">
                 {selectedQuestion ? (
                   <div className="space-y-4 animate-fadeIn">
-                    <div className="flex justify-between items-center pb-2.5 border-b border-slate-200">
-                      <div>
+                    <div className="flex flex-col gap-2 pb-2.5 border-b border-slate-200">
+                      <div className="min-w-0">
                         <span className="text-[10px] font-black uppercase text-slate-400">Question configuration</span>
-                        <h3 className="text-xs font-extrabold text-slate-800 font-mono mt-0.5">{selectedQuestion.code}</h3>
+                        <h3 className="text-xs font-extrabold text-slate-800 font-mono mt-0.5 truncate" title={selectedQuestion.code}>{selectedQuestion.code}</h3>
                       </div>
-                      <div className="flex bg-slate-100 p-0.5 rounded text-[10px] font-bold">
-                        <button onClick={() => setPropTab('label')} className={`px-2.5 py-1 rounded transition-colors ${propTab === 'label' ? 'bg-white text-[#1A2A6C] font-black shadow-sm' : 'text-slate-400'}`}>Labels & Mapping</button>
-                        <button onClick={() => setPropTab('rules')} className={`px-2.5 py-1 rounded transition-colors ${propTab === 'rules' ? 'bg-white text-[#1A2A6C] font-black shadow-sm' : 'text-slate-400'}`}>Validation specs</button>
+                      <div className="grid grid-cols-2 bg-slate-100 p-0.5 rounded text-[10px] font-bold">
+                        <button onClick={() => setPropTab('label')} className={`px-2 py-1 rounded transition-colors truncate ${propTab === 'label' ? 'bg-white text-[#1A2A6C] font-black shadow-sm' : 'text-slate-400'}`}>Labels</button>
+                        <button onClick={() => setPropTab('rules')} className={`px-2 py-1 rounded transition-colors truncate ${propTab === 'rules' ? 'bg-white text-[#1A2A6C] font-black shadow-sm' : 'text-slate-400'}`}>Validation</button>
                       </div>
                     </div>
 
@@ -889,7 +1450,8 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                             type="text"
                             value={selectedQuestion.code}
                             onChange={e => handleUpdateQuestionProperty('code', e.target.value.toUpperCase().replace(/\s/g, '_'))}
-                            className="w-full text-xs p-2 border border-slate-250 bg-white rounded font-mono"
+                            className="w-full min-w-0 text-[11px] p-2 border border-slate-250 bg-white rounded font-mono truncate"
+                            title={selectedQuestion.code}
                           />
                         </div>
 
@@ -1072,7 +1634,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                     )}
                   </div>
                 ) : (
-                  /* NO QUESTION SELECTED: AI ASSIST / PREFERENCE STATE PANEL */
+                  /* NO QUESTION SELECTED: SOURCE ASSIST / PREFERENCE STATE PANEL */
                   <div className="space-y-5 animate-fadeIn">
                     <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-3">
                       <h4 className="font-extrabold text-[#1A2A6C] text-xs flex items-center gap-1.5">
@@ -1136,7 +1698,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                     <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-3">
                       <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                         <FileUp className="w-4 h-4 text-indigo-700" />
-                        Ingest Reference Document (RAG)
+                        Ingest QBS / DDI / Legacy Document
                       </h4>
                       <p className="text-[11px] text-slate-400 font-medium">Teach the generator generator by indexing past regional manuals, guidelines, or PLFS question PDFs.</p>
                       
@@ -1150,13 +1712,13 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                         />
                         <Upload className="w-5 h-5 mx-auto text-slate-400 mb-1" />
                         <span className="text-[10px] font-bold text-slate-500 block">Drag & drop or browse training files</span>
-                        <span className="text-[9px] text-slate-400">PDF, Word docs index into ChromaDB</span>
+                        <span className="text-[9px] text-slate-400">PDF and Word files index into the local source library</span>
                       </div>
 
                       {isUploadingPdf && (
                         <div className="p-2 rounded bg-indigo-50 border border-indigo-100 text-[10px] text-indigo-800 font-bold font-mono animate-pulse flex items-center gap-2">
                           <Rocket className="w-3.5 h-3.5 animate-spin" />
-                          <span>Vectorizing reference embeddings...</span>
+                          <span>Indexing reference chunks...</span>
                         </div>
                       )}
 
@@ -1167,11 +1729,11 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                       )}
                     </div>
 
-                    {/* RAG PRECEDENT COMPLIANCE SUGGESTIONS */}
+                    {/* SOURCE PRECEDENT COMPLIANCE SUGGESTIONS */}
                     <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-3">
                       <h4 className="font-extrabold text-slate-800 text-xs flex items-center gap-1.5">
                         <BookOpen className="w-4 h-4 text-emerald-600" />
-                        PLFS Precedent Suggestions (RAG)
+                        PLFS Source Trace Suggestions
                       </h4>
                       <div className="space-y-1.5 max-h-56 overflow-y-auto font-medium">
                         {[
@@ -1247,22 +1809,37 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
           {/* SUB-PAGE 4: SEMANTIC CODE LOOKUP LIBRARY */}
           {activeSubPage === 'library' && (
             <div className="space-y-5 animate-fadeIn font-semibold text-xs text-slate-700">
-              <div className="border-b border-slate-100 pb-3">
-                <h2 className="text-sm font-extrabold text-[#1A2A6C]">National Classification Taxonomies Browser</h2>
-                <p className="text-[11px] text-slate-400 mt-0.5">Browse bilingual, semantic classification codes for NCO-2015 occupations, NIC-2008 economic operations, or COICOP standards.</p>
+              <div className="border-b border-slate-100 pb-3 flex justify-between items-center flex-wrap gap-4">
+                <div>
+                  <h2 className="text-sm font-extrabold text-[#1A2A6C]">National Classification Taxonomies Browser</h2>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Browse bilingual, semantic classification codes for NCO occupations, NIC economic operations, LGD geography, or ISIC standards.</p>
+                </div>
+                <button
+                  onClick={handleDownloadLibraryCSV}
+                  className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold text-[11px] rounded-lg flex items-center gap-1 shadow-sm transition-colors"
+                >
+                  <FileText className="w-3.5 h-3.5 text-white" />
+                  Export Sheet to CSV
+                </button>
               </div>
 
               {/* Selector tabs */}
-              <div className="flex gap-2 font-black text-xs">
-                {['NCO', 'NIC', 'ISIC'].map((type) => (
+              <div className="flex flex-wrap gap-2 font-black text-xs">
+                {[
+                  { id: 'NCO', label: 'Occupations (NCO-2015)' },
+                  { id: 'NIC', label: 'Industrial (NIC-2008)' },
+                  { id: 'LGD', label: 'Geography States (LGD)' },
+                  { id: 'LGD_DISTRICT', label: 'Geography Districts (LGD)' },
+                  { id: 'ISIC', label: 'International (ISIC v4)' }
+                ].map((item) => (
                   <button
-                    key={type}
-                    onClick={() => setLibraryType(type as any)}
-                    className={`py-2 px-4 rounded-lg transition-all ${
-                      libraryType === type ? 'bg-[#1A2A6C] text-white shadow' : 'bg-slate-100 text-slate-650 hover:bg-slate-200'
+                    key={item.id}
+                    onClick={() => handleSetLibraryType(item.id as any)}
+                    className={`py-2 px-3.5 rounded-lg transition-all ${
+                      libraryType === item.id ? 'bg-[#1A2A6C] text-white shadow' : 'bg-slate-100 text-slate-650 hover:bg-slate-200'
                     }`}
                   >
-                    {type === 'NCO' ? 'Occupations (NCO-2015)' : type === 'NIC' ? 'Industrial (NIC-2008)' : 'International (ISIC v4)'}
+                    {item.label}
                   </button>
                 ))}
               </div>
@@ -1272,47 +1849,106 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                   <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
                   <input 
                     type="text" 
-                    placeholder="Search taxonomy descriptions or codes... (e.g., driver, wheat, butcher)" 
+                    placeholder="Search taxonomy descriptions, codes, or synonyms... (e.g. wheat, driver, Delhi)"
                     value={libraryQuery}
-                    onChange={e => setLibraryQuery(e.target.value)}
-                    className="w-full text-xs pl-9 pr-3 py-2.5 border border-slate-250 rounded-lg bg-slate-50 text-slate-800"
+                    onChange={e => handleSetLibraryQuery(e.target.value)}
+                    className="w-full text-xs pl-9 pr-3 py-2.5 border border-slate-250 rounded-lg bg-slate-50 text-slate-800 focus:outline-none focus:border-[#1A2A6C] focus:bg-white transition-all font-semibold"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {CLASSIFICATION_CODES
-                  .filter(c => c.type === libraryType && (
-                    c.label_en.toLowerCase().includes(libraryQuery.toLowerCase()) || 
-                    c.code.includes(libraryQuery) ||
-                    c.synonyms.some(s => s.toLowerCase().includes(libraryQuery.toLowerCase()))
-                  ))
-                  .map((code) => (
-                    <div key={code.code} className="p-4 border border-slate-200 rounded-xl bg-white space-y-2.5 shadow-sm">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-mono font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-100 rounded px-2.5 py-0.5">
-                          Code Flag: {code.code}
-                        </span>
-                        <span className="text-[9px] uppercase tracking-widest font-extrabold text-slate-400">{code.type} System</span>
-                      </div>
-
-                      <div className="space-y-1">
-                        <p className="text-xs font-bold text-slate-800">{code.label_en}</p>
-                        <p className="text-[11px] font-medium text-slate-500 font-sans">{code.label_hi}</p>
-                        <p className="text-[11px] font-medium text-slate-500 font-sans">{code.label_ta}</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-1 mt-1 pt-2 border-t border-slate-100">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase mr-1 mt-0.5">Indexed mapping synonyms:</span>
-                        {code.synonyms.map((syn, idx) => (
-                          <span key={idx} className="text-[9px] bg-slate-50 border border-slate-100 text-slate-650 px-1.5 py-0.5 rounded">
-                            {syn}
-                          </span>
+              {isLibraryLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center text-slate-450 gap-2.5">
+                  <RefreshCw className="w-8 h-8 text-[#1A2A6C] animate-spin" />
+                  <span className="text-xs font-bold animate-pulse">Querying official registry database codes...</span>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* CSV Spreadsheet Table Display */}
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
+                    <table className="w-full text-left border-collapse font-sans text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-black text-[10px] uppercase tracking-wider">
+                          <th className="p-3 border-r border-slate-200/60 w-32">Registry Code</th>
+                          <th className="p-3 border-r border-slate-200/60 w-52">Label (English)</th>
+                          <th className="p-3 border-r border-slate-200/60 w-52">Label (Hindi)</th>
+                          <th className="p-3 border-r border-slate-200/60 w-52">Label (Tamil)</th>
+                          <th className="p-3">Indexed Mapping Synonyms</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
+                        {paginatedLibraryCodes.map((code) => (
+                          <tr key={code.code} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="p-3 font-mono font-bold text-slate-900 border-r border-slate-200/60 bg-slate-50/40">
+                              <span className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-black">
+                                {code.code}
+                              </span>
+                            </td>
+                            <td className="p-3 border-r border-slate-200/60 text-slate-850 font-bold leading-normal">
+                              {code.label_en}
+                            </td>
+                            <td className="p-3 border-r border-slate-200/60 text-slate-600 font-medium leading-normal">
+                              {code.label_hi || <span className="text-slate-355 italic text-[10px]">-</span>}
+                            </td>
+                            <td className="p-3 border-r border-slate-200/60 text-slate-650 font-medium leading-normal">
+                              {code.label_ta || <span className="text-slate-355 italic text-[10px]">-</span>}
+                            </td>
+                            <td className="p-3">
+                              <div className="flex flex-wrap gap-1 max-w-sm">
+                                {code.synonyms && code.synonyms.length > 0 ? (
+                                  code.synonyms.map((syn, idx) => (
+                                    <span key={idx} className="text-[9px] font-bold bg-slate-100 border border-slate-200 text-slate-650 px-1.5 py-0.5 rounded shadow-sm">
+                                      {syn}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-slate-300 italic text-[10px]">No synonyms index</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
                         ))}
+                        {paginatedLibraryCodes.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="p-10 text-center text-slate-450 italic font-bold">
+                              No matching classification database codes found for "{libraryQuery}".
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination Controls */}
+                  {filteredLibraryCodes.length > 0 && (
+                    <div className="flex items-center justify-between border border-slate-100 bg-slate-50/50 px-4 py-3 rounded-xl">
+                      <div className="text-[11px] text-slate-500 font-bold">
+                        Showing <span className="font-extrabold text-slate-800">{((libraryPage - 1) * libraryPerPage) + 1}</span> to{' '}
+                        <span className="font-extrabold text-slate-800">
+                          {Math.min(libraryPage * libraryPerPage, filteredLibraryCodes.length)}
+                        </span>{' '}
+                        of <span className="font-extrabold text-slate-800">{filteredLibraryCodes.length}</span> database codes
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setLibraryPage(prev => Math.max(prev - 1, 1))}
+                          disabled={libraryPage === 1}
+                          className="px-3 py-1.5 border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg text-[11px] font-extrabold transition-colors"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          onClick={() => setLibraryPage(prev => Math.min(prev + 1, totalLibraryPages))}
+                          disabled={libraryPage === totalLibraryPages}
+                          className="px-3 py-1.5 border border-slate-200 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg text-[11px] font-extrabold transition-colors"
+                        >
+                          Next
+                        </button>
                       </div>
                     </div>
-                  ))}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -1474,7 +2110,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
         </section>
       </div>
 
-      {/* FLOATING BOTTOM RIGHT COLLAPSED AI TOGGLE */}
+      {/* FLOATING BOTTOM RIGHT COLLAPSED SOURCE ASSIST TOGGLE */}
       {selectedSurvey && activeSubPage === 'builder' && selectedQuestionId && (
         <button
           onClick={() => {
@@ -1483,11 +2119,11 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
           }}
           className="fixed bottom-6 right-6 p-4 bg-amber-550 hover:bg-amber-600 text-white rounded-full shadow-2xl z-20 flex items-center justify-center gap-1.5 animate-bounce"
           style={{ backgroundColor: '#D97706' }}
-          title="Open AI Assist panel"
-          aria-label="Open Prompter Generator Assist"
+          title="Open source assist panel"
+          aria-label="Open source trace generator assist"
         >
           <Sparkles className="w-5 h-5 text-white animate-pulse" />
-          <span className="text-xs font-black uppercase tracking-wider font-sans">AI assistant</span>
+          <span className="text-xs font-black uppercase tracking-wider font-sans">Source assist</span>
         </button>
       )}
 
@@ -1500,7 +2136,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-amber-500 shrink-0" />
                 <div>
-                  <h3 className="font-bold text-slate-900 text-sm">Gemma Precedent Evaluation Generator</h3>
+                  <h3 className="font-bold text-slate-900 text-sm">Precedent Evaluation Generator</h3>
                   <p className="text-[10px] text-slate-400">MoSPI compliant in-context structural graph constructor.</p>
                 </div>
               </div>

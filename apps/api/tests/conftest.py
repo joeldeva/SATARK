@@ -12,4 +12,8 @@ def pytest_configure():
         db_path.unlink()
     os.environ["DATABASE_URL"] = f"sqlite:///{db_path.as_posix()}"
     os.environ["LLM_REQUIRED"] = "false"
+    # Keep the suite offline + deterministic regardless of any local .env
+    # (e.g. LLM_PROVIDER=openrouter) — tests never hit the network.
+    os.environ["LLM_PROVIDER"] = "none"
+    os.environ["OPENROUTER_API_KEY"] = ""
     os.environ["REDIS_URL"] = "redis://127.0.0.1:6379/15"

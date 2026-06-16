@@ -216,17 +216,26 @@ async def update_survey_endpoint(survey_id: str, request: Dict[str, Any]):
 
 
 @router.post("/surveys/{survey_id}/publish", dependencies=[Depends(require_scope("survey:write"))])
-async def publish_survey_endpoint(survey_id: str, user: dict = Depends(get_current_user)):
+async def publish_survey_endpoint(survey_id: str, request: Dict[str, Any] | None = None, user: dict = Depends(get_current_user)):
     from app.services.survey_service import publish_survey
     from app.services.validation_service import ensure_default_validation_rules
     from models.survey import Survey
     from services.assignment_service import auto_assign_published_survey
     from services.events import publish as publish_event
 
+    request = request or {}
+    graph = request.get("question_graph") or request.get("graph")
+    if graph is None and (request.get("nodes") is not None or request.get("branches") is not None):
+        graph = {
+            "id": survey_id,
+            "title": request.get("title") or {"en": survey_id},
+            "nodes": request.get("nodes") or [],
+            "branches": request.get("branches") or {},
+        }
     db = _open_db()
     try:
         actor = user.get("username") or "sdrd"
-        result = publish_survey(db, survey_id, actor)
+        result = publish_survey(db, survey_id, actor, graph=graph)
         survey_row = db.query(Survey).filter(Survey.survey_id == survey_id).first()
         created_rules = ensure_default_validation_rules(db, survey_id, survey_row.question_graph if survey_row else None)
         assignment = auto_assign_published_survey(db, survey_id, actor)
@@ -235,12 +244,18 @@ async def publish_survey_endpoint(survey_id: str, user: dict = Depends(get_curre
     finally:
         db.close()
 
-    publish_event("survey.published", {
-        "survey_id": survey_id,
-        "version": result["version"],
-        "published_by": user.get("username"),
-        "assignment": result.get("assignment"),
-    })
+    # Best-effort: a missing Redis must not fail an already-committed publish.
+    from services.events import RedisPublishError
+
+    try:
+        publish_event("survey.published", {
+            "survey_id": survey_id,
+            "version": result["version"],
+            "published_by": user.get("username"),
+            "assignment": result.get("assignment"),
+        })
+    except RedisPublishError as exc:
+        logger.warning("survey.published event not delivered (Redis unavailable): %s", exc)
     return result
 
 
@@ -342,8 +357,24 @@ async def delete_adaptive_logic_endpoint(rule_id: str):
 
 
 @router.get("/question-bank", dependencies=[Depends(require_scope("survey:read"))])
-async def question_bank():
-    return {"questions": _question_bank()}
+async def question_bank(q: str | None = Query(default=None), k: int = Query(default=10, ge=1, le=50)):
+    from services import question_bank as qb
+
+    if q and q.strip():
+        # semantic embedding search (not SQL LIKE)
+        return {"questions": qb.search(q.strip(), k=k), "mode": "semantic", "is_verdict": False}
+    return {"questions": qb.all_questions(), "mode": "all"}
+
+
+@router.post("/question-bank", dependencies=[Depends(require_scope("survey:write"))])
+async def add_question_bank_entry(request: Dict[str, Any]):
+    from services import question_bank as qb
+
+    text = request.get("text")
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+    created = qb.add(request)
+    return {"question": created, "is_verdict": False, "needs_review": True}
 
 
 @router.get("/codes", dependencies=[Depends(require_scope("survey:read"))])
@@ -442,13 +473,14 @@ async def llm_status():
     if not _generator or not getattr(_generator, "llm_planner", None):
         return {"enabled": False, "provider": "none"}
     planner = _generator.llm_planner
+    provider = getattr(planner, "provider", "ollama")
     return {
         "enabled": True,
-        "provider": "ollama",
+        "provider": provider,
         "model": planner.model,
         "baseUrl": planner.base_url,
         "required": planner.required,
-        "privacy": "local_inference_no_external_api",
+        "privacy": "online_openrouter" if provider == "openrouter" else "local_inference_no_external_api",
     }
 
 
@@ -476,15 +508,66 @@ async def consent(request: Dict[str, Any]):
         db.close()
 
 
+DEMO_IDENTITY_BADGE = "Demo: mock identity registry — no real Aadhaar/UIDAI integration"
+
+
 @router.post("/prepopulate", dependencies=[Depends(require_scope("collect:write"))])
 async def prepopulate(request: Dict[str, Any]):
-    from models.platform import Household
+    """Prefill respondent fields from a MOCK government-ID registry.
 
-    household_id = request.get("householdId") or request.get("household_id")
+    DEMO ONLY: this is a demonstration of the prepopulation PATTERN, not e-KYC.
+    No real Aadhaar checksum is validated — any well-formed input is accepted.
+    On match, fields are returned with a 'From household record' tag and
+    provenance. On no match, we proceed blank with no error.
+    """
+    from models.platform import Household, MockIdentity
+
+    id_type = str(request.get("id_type") or request.get("idType") or "").strip().lower()
+    id_number = str(request.get("id_number") or request.get("idNumber") or "").strip()
+
+    # Back-compat: household lookup still supported when no id supplied.
+    if not id_type and not id_number:
+        household_id = request.get("householdId") or request.get("household_id")
+        db = _open_db()
+        try:
+            household = db.get(Household, household_id) if household_id else None
+            return {
+                "matched": bool(household),
+                "household": None if not household else {"id": household.id, "prepop": household.prepopulated},
+                "demo_badge": DEMO_IDENTITY_BADGE,
+                "is_verdict": False,
+            }
+        finally:
+            db.close()
+
+    digits = "".join(ch for ch in id_number if ch.isalnum())
+    suffix = digits[-4:] if len(digits) >= 4 else digits
     db = _open_db()
     try:
-        household = db.get(Household, household_id) if household_id else None
-        return {"household": None if not household else {"id": household.id, "prepop": household.prepopulated}}
+        query = db.query(MockIdentity)
+        if id_type:
+            query = query.filter(MockIdentity.id_type == id_type)
+        match = query.filter(MockIdentity.last4 == suffix).first() if suffix else None
+        if not match:
+            # no match -> proceed blank, never an error
+            return {
+                "matched": False,
+                "fields": {},
+                "demo_badge": DEMO_IDENTITY_BADGE,
+                "is_verdict": False,
+                "needs_review": True,
+            }
+        return {
+            "matched": True,
+            "id_type": match.id_type,
+            "id_number_masked": match.id_number,
+            "fields": match.record or {},
+            "tag": "From household record",
+            "provenance": "Matched mock registry · demo data",
+            "demo_badge": DEMO_IDENTITY_BADGE,
+            "is_verdict": False,
+            "needs_review": True,
+        }
     finally:
         db.close()
 
@@ -626,6 +709,17 @@ async def dashboard_flags(status: str | None = Query(default="flagged")):
     db = _open_db()
     try:
         return {"responses": flagged_responses(db, status=status)}
+    finally:
+        db.close()
+
+
+@router.get("/integrity/verify", dependencies=[Depends(require_scope("dashboard:view"))])
+async def integrity_verify():
+    from services.hash_chain import verify_chain
+
+    db = _open_db()
+    try:
+        return verify_chain(db)
     finally:
         db.close()
 

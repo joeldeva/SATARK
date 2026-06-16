@@ -4,10 +4,12 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { api } from '../api';
+import { api, isUsingProductionMockData } from '../api';
+import { INITIAL_SURVEYS, PINCODE_LOCATIONS } from '../mockData';
 import { SurveyResponse, ClassificationCode } from '../types';
 import { translations } from '../i18n';
 import { TrustBadge, StatusChip, ConfidenceGauge, ReasonPopover } from './TrustComponents';
+import { MethodConfidencePanel } from './MethodConfidencePanel';
 import { 
   FileSearch, 
   Sparkles, 
@@ -158,6 +160,14 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
   const [filterSeverity, setFilterSeverity] = useState<string>('all');
   const [filterRegion, setFilterRegion] = useState<string>('all');
   const [filterEnumerator, setFilterEnumerator] = useState<string>('');
+  const [filterState, setFilterState] = useState<string>('all');
+  const [filterDistrict, setFilterDistrict] = useState<string>('all');
+  const [filterPincode, setFilterPincode] = useState<string>('');
+  const [filterSurvey, setFilterSurvey] = useState<string>('all');
+  const [filterQuestion, setFilterQuestion] = useState<string>('');
+  const [filterDate, setFilterDate] = useState<string>('all');
+  const [filterTrustScore, setFilterTrustScore] = useState<string>('all');
+  const [filterValidationType, setFilterValidationType] = useState<string>('all');
 
   // Detail panel collapsibles: map of layer index -> open status
   const [expandedLayers, setExpandedLayers] = useState<Record<string, boolean>>({
@@ -323,10 +333,10 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
       });
     });
     if (count > 0) {
-      triggerToast(`Successful bulk clearance: ${count} auto-coded responses (confidence \u226590%) certified.`);
+      triggerToast(`Successful bulk clearance: ${count} coding suggestions with quality >=90% certified.`);
       loadDPDData();
     } else {
-      triggerToast('No pending auto-coded responses meet the \u226590% confidence threshold.');
+      triggerToast('No pending coding suggestions meet the >=90% quality threshold.');
     }
   };
 
@@ -334,6 +344,20 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
   const filteredResponses = responses.filter(r => {
     // text search
     if (filterEnumerator && !r.enumeratorName.toLowerCase().includes(filterEnumerator.toLowerCase())) return false;
+    if (filterSurvey !== 'all' && r.surveyId !== filterSurvey) return false;
+    if (filterQuestion && !Object.keys(r.answers).some(q => q.toLowerCase().includes(filterQuestion.toLowerCase()))) return false;
+    if (filterTrustScore === 'lt60' && r.confidenceScore >= 60) return false;
+    if (filterTrustScore === 'gte90' && r.confidenceScore < 90) return false;
+    if (filterPincode) {
+      const pinMatch = PINCODE_LOCATIONS.some(location => location.pincode.includes(filterPincode));
+      if (!pinMatch) return false;
+    }
+    if (filterState !== 'all' && filterState !== 'Tamil Nadu') return false;
+    if (filterDistrict !== 'all' && !['Chennai', 'Coimbatore', 'Madurai'].includes(filterDistrict)) return false;
+    if (filterDate === 'last30') {
+      const cutoff = Date.now() - 30 * 86400000;
+      if (new Date(r.timestamp).getTime() < cutoff) return false;
+    }
     // region filter
     if (filterRegion !== 'all' && !r.householdId.startsWith(filterRegion)) return false;
     // severity filter
@@ -349,6 +373,11 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
       if (filterLayer === 'behavior' && r.validation.layer4_behavior.status === 'fail') return true;
       if (filterLayer === 'cross' && r.validation.layer5_cross.status === 'fail') return true;
       return false; // if non matches layer fail
+    }
+    if (filterValidationType !== 'all') {
+      if (filterValidationType === 'consistency' && r.validation.layer3_bayesian.status !== 'fail') return false;
+      if (filterValidationType === 'speed' && r.validation.layer4_behavior.status !== 'fail') return false;
+      if (filterValidationType === 'cross' && r.validation.layer5_cross.status !== 'fail') return false;
     }
 
     return true;
@@ -376,27 +405,27 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
 
   // Mock flag graph histories (14 Days Stacked Inflow counts by validation layer)
   const inflowData = [
-    { name: '10/05', Completeness: 1, Range: 2, Bayesian: 1, Behavior: 4, CrossField: 2 },
-    { name: '11/05', Completeness: 0, Range: 3, Bayesian: 2, Behavior: 5, CrossField: 1 },
-    { name: '12/05', Completeness: 1, Range: 1, Bayesian: 0, Behavior: 3, CrossField: 3 },
-    { name: '13/05', Completeness: 0, Range: 0, Bayesian: 1, Behavior: 4, CrossField: 0 },
-    { name: '14/05', Completeness: 2, Range: 4, Bayesian: 3, Behavior: 7, CrossField: 4 },
-    { name: '15/05', Completeness: 0, Range: 1, Bayesian: 1, Behavior: 3, CrossField: 1 },
-    { name: '16/05', Completeness: 1, Range: 2, Bayesian: 0, Behavior: 2, CrossField: 0 },
-    { name: '17/05', Completeness: 3, Range: 5, Bayesian: 4, Behavior: 8, CrossField: 5 },
-    { name: '18/05', Completeness: 1, Range: 1, Bayesian: 1, Behavior: 5, CrossField: 2 },
-    { name: '19/05', Completeness: 0, Range: 0, Bayesian: 2, Behavior: 3, CrossField: 1 },
-    { name: '20/05', Completeness: 0, Range: 1, Bayesian: 0, Behavior: 2, CrossField: 1 },
-    { name: '21/05', Completeness: 2, Range: 3, Bayesian: 1, Behavior: 6, CrossField: 3 },
-    { name: '22/05', Completeness: 1, Range: 4, Bayesian: 2, Behavior: 9, CrossField: 4 },
-    { name: '23/05', Completeness: 0, Range: 1, Bayesian: 3, Behavior: 4, CrossField: 5 }
+    { name: '10/05', Completeness: 1, Range: 2, Consistency: 1, Behavior: 4, CrossField: 2 },
+    { name: '11/05', Completeness: 0, Range: 3, Consistency: 2, Behavior: 5, CrossField: 1 },
+    { name: '12/05', Completeness: 1, Range: 1, Consistency: 0, Behavior: 3, CrossField: 3 },
+    { name: '13/05', Completeness: 0, Range: 0, Consistency: 1, Behavior: 4, CrossField: 0 },
+    { name: '14/05', Completeness: 2, Range: 4, Consistency: 3, Behavior: 7, CrossField: 4 },
+    { name: '15/05', Completeness: 0, Range: 1, Consistency: 1, Behavior: 3, CrossField: 1 },
+    { name: '16/05', Completeness: 1, Range: 2, Consistency: 0, Behavior: 2, CrossField: 0 },
+    { name: '17/05', Completeness: 3, Range: 5, Consistency: 4, Behavior: 8, CrossField: 5 },
+    { name: '18/05', Completeness: 1, Range: 1, Consistency: 1, Behavior: 5, CrossField: 2 },
+    { name: '19/05', Completeness: 0, Range: 0, Consistency: 2, Behavior: 3, CrossField: 1 },
+    { name: '20/05', Completeness: 0, Range: 1, Consistency: 0, Behavior: 2, CrossField: 1 },
+    { name: '21/05', Completeness: 2, Range: 3, Consistency: 1, Behavior: 6, CrossField: 3 },
+    { name: '22/05', Completeness: 1, Range: 4, Consistency: 2, Behavior: 9, CrossField: 4 },
+    { name: '23/05', Completeness: 0, Range: 1, Consistency: 3, Behavior: 4, CrossField: 5 }
   ];
 
   // Mock Error analysis statistical summaries
   const mostCommonErrors = [
     { type: 'Cross-Field Logical Contradiction', count: 18, trend: 'up', reason: 'High wage entered (>=₹10,000) contradicts status Unemployed' },
     { type: 'Paradata straight-lining (speeding)', count: 14, trend: 'down', reason: 'Answering speed (<5 seconds cumulative) indicates data fabrication' },
-    { type: 'Bayesian outlier boundaries', count: 11, trend: 'up', reason: 'Income reported lies in the outlier 99.8th percentile for demographic strata' },
+    { type: 'Survey consistency boundaries', count: 11, trend: 'up', reason: 'Income reported lies outside the expected review band for demographic strata' },
     { type: 'Required demographic fields missing', count: 5, trend: 'stable', reason: 'Required structural questions skipped in sub-sections' }
   ];
 
@@ -418,7 +447,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
               <h1 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-1.5">
                 {t.dpd_title}
               </h1>
-              <p className="text-[11px] text-slate-500 font-medium">Verify structural contradictions, statistical boundaries, and semantic taxonomy coding returns</p>
+              <p className="text-[11px] text-slate-500 font-medium">Verify structural contradictions, survey consistency checks, and classification coding returns</p>
             </div>
           </div>
         </div>
@@ -450,6 +479,30 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
           <span>{successToast}</span>
         </div>
       )}
+
+      <section className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+          <div>
+            <h2 className="font-extrabold text-sm text-slate-900">Live Data Pipeline</h2>
+            <p className="text-[11px] text-slate-500">Survey responses move through validation, DPD coding, approval, and SCD release.</p>
+          </div>
+          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase border ${
+            isUsingProductionMockData()
+              ? 'bg-amber-50 text-amber-800 border-amber-200'
+              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+          }`}>
+            {isUsingProductionMockData() ? 'Production Mock Data' : 'Real API Data'}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-[10px] font-bold">
+          {['Survey', 'Validation Engine', 'DPD Queue', 'Coding', 'Approval', 'SCD'].map((step, index) => (
+            <div key={step} className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-700">
+              <span className="block text-slate-400 uppercase">{index + 1}</span>
+              <strong>{step}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* ======================================= */}
       {/* SECTION 8.1: DPD DASHBOARD TAB */}
@@ -484,7 +537,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
             </div>
 
             <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Weighted Avg Confidence (7d)</span>
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">Weighted Avg Quality (7d)</span>
               <div className="text-3xl font-extrabold text-slate-900 font-mono tracking-tight">{avgConfidenceText}</div>
               <p className="text-[10.5px] text-slate-500 mt-1 font-semibold">Cumulative national data quality rating</p>
             </div>
@@ -509,7 +562,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                     <Legend iconType="circle" wrapperStyle={{ fontSize: 9 }} />
                     <Bar dataKey="Completeness" stackId="a" fill="#38bdf8" />
                     <Bar dataKey="Range" stackId="a" fill="#fb7185" />
-                    <Bar dataKey="Bayesian" stackId="a" fill="#c084fc" />
+                    <Bar dataKey="Consistency" stackId="a" fill="#c084fc" />
                     <Bar dataKey="Behavior" stackId="a" fill="#fbbf24" />
                     <Bar dataKey="CrossField" stackId="a" fill="#4f46e5" />
                   </BarChart>
@@ -641,7 +694,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                     <option value="all">All Layers</option>
                     <option value="validation">Layer 1: Rules</option>
                     <option value="govt">Layer 2: LGD Bounds</option>
-                    <option value="bayesian">Layer 3: Bayesian Outlier</option>
+                    <option value="bayesian">Layer 3: Survey Consistency</option>
                     <option value="behavior">Layer 4: Pacing</option>
                     <option value="cross">Layer 5: Logical Contradict</option>
                   </select>
@@ -659,6 +712,40 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                     <option value="warn">High Alert (Amber)</option>
                   </select>
                 </div>
+
+                <select value={filterState} onChange={e => setFilterState(e.target.value)} className="w-full p-1.5 text-[11px] font-bold bg-white border border-slate-205 rounded-lg">
+                  <option value="all">All States</option>
+                  <option value="Tamil Nadu">Tamil Nadu</option>
+                </select>
+                <select value={filterDistrict} onChange={e => setFilterDistrict(e.target.value)} className="w-full p-1.5 text-[11px] font-bold bg-white border border-slate-205 rounded-lg">
+                  <option value="all">All Districts</option>
+                  <option value="Chennai">Chennai</option>
+                  <option value="Coimbatore">Coimbatore</option>
+                  <option value="Madurai">Madurai</option>
+                </select>
+                <input value={filterPincode} onChange={e => setFilterPincode(e.target.value)} placeholder="Pincode" className="w-full p-1.5 text-[11px] font-bold bg-white border border-slate-205 rounded-lg" />
+                <select value={filterSurvey} onChange={e => setFilterSurvey(e.target.value)} className="w-full p-1.5 text-[11px] font-bold bg-white border border-slate-205 rounded-lg">
+                  <option value="all">All Surveys</option>
+                  {(INITIAL_SURVEYS).map(survey => (
+                    <option key={survey.id} value={survey.id}>{survey.shortName || survey.name_en}</option>
+                  ))}
+                </select>
+                <input value={filterQuestion} onChange={e => setFilterQuestion(e.target.value)} placeholder="Question code" className="w-full p-1.5 text-[11px] font-bold bg-white border border-slate-205 rounded-lg" />
+                <select value={filterDate} onChange={e => setFilterDate(e.target.value)} className="w-full p-1.5 text-[11px] font-bold bg-white border border-slate-205 rounded-lg">
+                  <option value="all">All Dates</option>
+                  <option value="last30">Last 30 Days</option>
+                </select>
+                <select value={filterTrustScore} onChange={e => setFilterTrustScore(e.target.value)} className="w-full p-1.5 text-[11px] font-bold bg-white border border-slate-205 rounded-lg">
+                  <option value="all">All Trust Scores</option>
+                  <option value="lt60">Trust &lt; 60</option>
+                  <option value="gte90">Trust &gt;= 90</option>
+                </select>
+                <select value={filterValidationType} onChange={e => setFilterValidationType(e.target.value)} className="w-full p-1.5 text-[11px] font-bold bg-white border border-slate-205 rounded-lg">
+                  <option value="all">All Validation Types</option>
+                  <option value="consistency">Survey Consistency</option>
+                  <option value="speed">Trust Indicators</option>
+                  <option value="cross">Cross-field Checks</option>
+                </select>
               </div>
 
               {/* Bulk actions and counts */}
@@ -762,7 +849,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                         r.confidenceScore >= 80 ? 'text-emerald-700' :
                         r.confidenceScore >= 50 ? 'text-amber-700' : 'text-rose-700 animate-pulse'
                       }`}>
-                        Confidence: {r.confidenceScore}% {r.trustBand}
+                        Quality: {r.confidenceScore}% {r.trustBand}
                       </span>
                     </div>
                   </div>
@@ -882,7 +969,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                         >
                           <div className="flex items-center gap-2 font-bold text-slate-800">
                             <span className="font-mono text-[10px] text-slate-400">03</span>
-                            <span>Layer 3: Bayesian Strata Prior Anomaly</span>
+                            <span>Layer 3: Survey Consistency Review</span>
                           </div>
                           <div className="flex items-center gap-1.5">
                             <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
@@ -963,7 +1050,13 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                     </div>
                   </div>
 
-                  {/* Trust and Confidence Breakdown panel */}
+                  {/* Per-method confidence with proof — which method flagged, and its score */}
+                  <div className="bg-white border border-slate-200/80 p-4 rounded-2xl">
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-2">Validation methods / quality proof</h4>
+                    <MethodConfidencePanel methods={selectedResponse.methods} />
+                  </div>
+
+                  {/* Trust and Quality Breakdown panel */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-slate-700 font-medium">
                     <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl flex items-center gap-4">
                       <ConfidenceGauge score={selectedResponse.confidenceScore} />
@@ -1152,7 +1245,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
             <div>
               <h2 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                 <BookOpen className="w-5 h-5 text-sky-600" />
-                Auto-Coding Classification Auditing
+                Coding Suggestion Review
               </h2>
               <p className="text-[11px] text-slate-550 mt-0.5">Approve or adjust free-text industrial classifications using standard NCO/NIC taxonomies.</p>
             </div>
@@ -1168,7 +1261,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
               
               <span className="bg-sky-50 text-sky-850 hover:bg-sky-100 border border-sky-200 rounded-xl px-3 py-1.5 text-[10.5px] font-black inline-flex items-center gap-1.5 shadow-sm">
                 <Sparkles className="w-4 h-4 text-sky-600 animate-pulse" />
-                Suggestions powered by MoSPI NIC semantic search lookup
+                Suggestions powered by MoSPI NIC classification lookup
               </span>
             </div>
           </div>
@@ -1180,7 +1273,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                   <th className="px-4 py-3">Verbatim free-text entry</th>
                   <th className="px-4 py-3">Suggested Code</th>
                   <th className="px-4 py-3">MoSPI Taxonomic label</th>
-                  <th className="px-4 py-3 text-center">Matching confidence</th>
+                  <th className="px-4 py-3 text-center">Match quality</th>
                   <th className="px-4 py-3 text-center">System validation source</th>
                   <th className="px-4 py-3 text-right">Audit resolutions</th>
                 </tr>
@@ -1216,12 +1309,12 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                           </ReasonPopover>
                         </td>
                         <td className="px-4 py-4 text-center">
-                          {/* Matching confidence bar */}
+                          {/* Matching quality bar */}
                           <div className="flex flex-col items-center gap-1 min-w-[90px]">
                             <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-black ${
                               codeDetailVal.confidence >= 80 ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'
                             }`}>
-                              {codeDetailVal.confidence}% match
+                              {codeDetailVal.confidence}% quality
                             </span>
                             <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                               <div 
@@ -1275,7 +1368,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
           </div>
 
           <div className="text-center text-[10px] text-slate-400 py-2 border-t border-slate-100 font-bold uppercase tracking-wider">
-            Recommendations generated through structural MoSPI semantic classification registries.
+            Recommendations generated through official MoSPI classification registries.
           </div>
         </div>
       )}
@@ -1324,7 +1417,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                         <TrustBadge score={r.confidenceScore} band={r.trustBand} isColorBlind={isColorBlind} />
                       </div>
                       <p className="text-rose-900 text-[11px] leading-relaxed font-sans font-medium">
-                        FAIL Layers check: {r.validation.layer5_cross.status === 'fail' ? 'Cross-field conflict' : 'Bayesian Strata outlier anomalies'}
+                        FAIL Layers check: {r.validation.layer5_cross.status === 'fail' ? 'Cross-field conflict' : 'Survey consistency warning'}
                       </p>
                       <span className="block text-[10px] text-rose-400 font-bold uppercase tracking-wider text-right hover:underline">
                         Investigate drilldown &rarr;
@@ -1339,7 +1432,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
-                {/* Confidence Histogram */}
+                {/* Quality Histogram */}
                 <div className="space-y-3">
                   <span className="text-[10.5px] font-black text-slate-400 uppercase tracking-widest block">Response Quality rating Histogram</span>
                   <div className="h-44 w-full bg-slate-50/50 p-2 rounded-xl border border-slate-110">
@@ -1399,7 +1492,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                     <div className="text-left pl-3">Field code</div>
                     <div>L1: Structural</div>
                     <div>L2: Geographic</div>
-                    <div>L3: Bayesian</div>
+                    <div>L3: Consistency</div>
                     <div>L4: Pacing</div>
                     <div>L5: Logical</div>
                   </div>
@@ -1429,7 +1522,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                 <button
                   onClick={() => {
                     const csvContent = "data:text/csv;charset=utf-8," 
-                      + "Response_ID,Enumerator,Validation_L1,Validation_L2,Validation_L3,Validation_L4,Validation_L5,Confidence_Quality_Score\n"
+                      + "Response_ID,Enumerator,Validation_L1,Validation_L2,Validation_L3,Validation_L4,Validation_L5,Quality_Score\n"
                       + "resp_1,Lakshmi R.,pass,pass,pass,pass,pass,94\n"
                       + "resp_2,Karthik S.,pass,pass,fail,fail,fail,46\n";
                     const encodedUri = encodeURI(csvContent);
@@ -1476,9 +1569,9 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
 
               {/* Mathematical display boxes */}
               <div className="bg-slate-50 p-3 border border-slate-200 rounded-xl space-y-2 font-mono text-[10.5px]">
-                <p className="text-indigo-950 font-black">Weighted Confidence calculation formula:</p>
+                <p className="text-indigo-950 font-black">Weighted quality calculation formula:</p>
                 <p className="bg-indigo-50 p-2.5 rounded text-indigo-900 text-[10px] font-black border border-indigo-150">
-                  Confidence = (0.40 &times; Validation) + (0.30 &times; Fraud_Score) + (0.15 &times; Evidence) + (0.15 &times; Behaviour)
+                  Quality = (0.40 &times; Validation) + (0.30 &times; Trust Indicators) + (0.15 &times; Evidence) + (0.15 &times; Behaviour)
                 </p>
               </div>
 
@@ -1526,7 +1619,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
               </div>
 
               <div className="border-t border-slate-150 pt-3 text-slate-500 italic text-[11px]">
-                Target Confidence of response #{selectedResponse.id} yields **{selectedResponse.confidenceScore}%** total index.
+                Target quality of response #{selectedResponse.id} yields **{selectedResponse.confidenceScore}%** total index.
               </div>
             </div>
 

@@ -16,7 +16,7 @@ from app.intelligence.assist.rag.store import status as store_status
 
 logger = logging.getLogger(__name__)
 
-_VALID_BUCKETS = {"survey_generation", "validation", "general"}
+_VALID_BUCKETS = {"survey_generation", "validation", "general", "question_bank"}
 
 
 def _normalize_bucket(bucket: str | None) -> str:
@@ -62,12 +62,13 @@ def answer(question: str, bucket: str = "general", k: int = 5) -> Dict[str, Any]
         for hit in hits
     ]
 
-    # Compose a grounded summary from top sources. If Chroma is down,
-    # store_query raises and the API returns 503.
+    # Compose a grounded summary from top sources. Prefer an LLM-composed answer
+    # (assist lane) when configured; always fall back to the deterministic
+    # extractive summary so RAG works offline too.
     summary = ""
     if hits:
         joined = "\n---\n".join(hit.get("text") or "" for hit in hits[:3])
-        summary = _summarize_locally(question or "", joined)
+        summary = _summarize_with_llm(question or "", joined) or _summarize_locally(question or "", joined)
 
     confidence = round(min(1.0, sum(h.get("score") or 0.0 for h in hits[:3]) / 3), 4) if hits else 0.0
 
@@ -112,6 +113,31 @@ def classify_code(text: str, code_type: Optional[str] = None, k: int = 5) -> Dic
 def _snippet(text: str, max_chars: int = 240) -> str:
     text = (text or "").strip().replace("\n", " ")
     return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
+
+
+def _summarize_with_llm(question: str, joined: str) -> str | None:
+    """Grounded answer composed by the assist LLM from retrieved context only."""
+    from app.intelligence.assist.llm_client import available, chat
+
+    if not available():
+        return None
+    context = joined[:4000]
+    text = chat(
+        [
+            {
+                "role": "system",
+                "content": (
+                    "You are SATARK's survey-design assistant for official statistics. "
+                    "Answer ONLY from the provided context. If the context is insufficient, say so. "
+                    "Be concise (max 4 sentences). This is a suggestion for officer review, not a verdict."
+                ),
+            },
+            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
+        ],
+        temperature=0.2,
+        max_tokens=300,
+    )
+    return text or None
 
 
 def _summarize_locally(question: str, joined: str) -> str:

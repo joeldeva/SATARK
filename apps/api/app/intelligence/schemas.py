@@ -43,6 +43,7 @@ class CheckResult:
     severity: str           # error | warning
     reason: str             # EXPLAINABILITY — always populated
     recommended_action: str | None = None
+    confidence: float = 100.0   # 0..100 — this method's confidence in THIS answer
 
     def as_dict(self) -> dict:
         return {
@@ -52,6 +53,7 @@ class CheckResult:
             "severity": self.severity,
             "reason": self.reason,
             "recommended_action": self.recommended_action,
+            "confidence": round(float(self.confidence), 1),
         }
 
 

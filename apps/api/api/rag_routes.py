@@ -61,7 +61,7 @@ async def rag_query(request: Dict[str, Any]):
     return result
 
 
-@router.post("/rag/ingest", dependencies=[Depends(require_scope("admin"))])
+@router.post("/rag/ingest", dependencies=[Depends(require_scope("survey:write"))])
 async def rag_ingest(
     bucket: str = Form("survey_generation"),
     file: UploadFile = File(...),

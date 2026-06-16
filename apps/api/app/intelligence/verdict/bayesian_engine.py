@@ -171,6 +171,7 @@ class BayesianEngine:
                 severity=severity,
                 reason=res.reason,
                 recommended_action=action,
+                confidence=round((1.0 - res.posterior_anomaly) * 100, 1),
             ))
 
         return checks, details

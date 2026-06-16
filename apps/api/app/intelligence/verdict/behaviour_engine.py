@@ -106,8 +106,9 @@ class BehaviourEngine:
                 f"({speed_ratio * 100:.0f}% of expected pace)"
             )
             fraud_signals.append({"type": "speeding", "reason": reason})
+            speed_conf = _clamp((speed_ratio / SPEED_HARD_THRESHOLD) * 40, 0, 40)
             checks.append(CheckResult("behaviour", "speed", Status.FAIL,
-                                      "error", reason, "re_interview"))
+                                      "error", reason, "re_interview", confidence=speed_conf))
 
         # 2. Straight-lining
         vals = [str(v) for v in answers.values()]
@@ -115,7 +116,7 @@ class BehaviourEngine:
             reason = f"identical answer across all {len(vals)} questions (straight-lining)"
             fraud_signals.append({"type": "straight_lining", "reason": reason})
             checks.append(CheckResult("behaviour", "straight_line", Status.FAIL,
-                                      "error", reason, "re_interview"))
+                                      "error", reason, "re_interview", confidence=8.0))
 
         # 3. Zero-correction speed combo
         if speed_ratio < SPEED_SOFT_THRESHOLD and corrections == 0 and n_ans >= STRAIGHT_LINE_MIN_Q:
@@ -125,7 +126,7 @@ class BehaviourEngine:
             )
             fraud_signals.append({"type": "no_correction_speed", "reason": reason})
             checks.append(CheckResult("behaviour", "no_correction_speed", Status.WARN,
-                                      "warning", reason, "review"))
+                                      "warning", reason, "review", confidence=45.0))
 
         # 4. Correction flood
         if corrections > MAX_CORRECTIONS:
@@ -135,7 +136,7 @@ class BehaviourEngine:
             )
             fraud_signals.append({"type": "correction_flood", "reason": reason})
             checks.append(CheckResult("behaviour", "correction_flood", Status.WARN,
-                                      "warning", reason, "review"))
+                                      "warning", reason, "review", confidence=50.0))
 
         # 5. GPS drift
         gps_lat = pd.get("gps_lat")
@@ -150,7 +151,7 @@ class BehaviourEngine:
                 )
                 fraud_signals.append({"type": "gps_drift", "reason": reason})
                 checks.append(CheckResult("behaviour", "gps_drift", Status.WARN,
-                                          "warning", reason, "review"))
+                                          "warning", reason, "review", confidence=50.0))
 
         # 6. Low effort
         short = [
@@ -164,7 +165,7 @@ class BehaviourEngine:
             )
             fraud_signals.append({"type": "low_effort", "reason": reason})
             checks.append(CheckResult("behaviour", "low_effort", Status.WARN,
-                                      "warning", reason, "review"))
+                                      "warning", reason, "review", confidence=55.0))
 
         # Derived scores
         engagement   = _clamp(100 - max(0, (0.5 - speed_ratio)) * 160)

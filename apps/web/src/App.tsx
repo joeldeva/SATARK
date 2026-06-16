@@ -12,6 +12,7 @@ import { FODWorkspace } from './components/FODWorkspace';
 import { DPDWorkspace } from './components/DPDWorkspace';
 import { SCDWorkspace } from './components/SCDWorkspace';
 import { CollectionClient } from './components/CollectionClient';
+import { EnumeratorSandboxPage } from './workspaces/fod/pages/EnumeratorSandboxPage';
 import { 
   ShieldAlert, 
   Globe, 
@@ -596,6 +597,24 @@ export default function App() {
                   <ChevronRight className="w-3.5 h-3.5 opacity-50" />
                 </button>
 
+                {/* DEMO — Enumerator Sandbox (multi-channel loop, roles: admin, fod) */}
+                {(currentUser.role === 'admin' || currentUser.role === 'fod') && (
+                  <button
+                    onClick={() => setActiveTab('sandbox')}
+                    className={`w-full text-left py-2 px-3.5 rounded-lg flex items-center justify-between transition-colors ${
+                      activeTab === 'sandbox' ? 'bg-indigo-750 text-white font-bold shadow' : 'text-slate-650 hover:bg-slate-50 hover:text-slate-900 font-semibold text-xs'
+                    }`}
+                    role="tab"
+                    aria-selected={activeTab === 'sandbox'}
+                  >
+                    <span className="flex items-center gap-2 text-xs">
+                      <SlidersHorizontal className="w-4 h-4" />
+                      Enumerator Sandbox
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 opacity-50" />
+                  </button>
+                )}
+
               </div>
             </div>
 
@@ -621,6 +640,7 @@ export default function App() {
             {activeTab === 'fod' && <FODWorkspace lang={lang} isColorBlind={isColorBlind} />}
             {activeTab === 'dpd' && <DPDWorkspace lang={lang} isColorBlind={isColorBlind} />}
             {activeTab === 'collect' && <CollectionClient lang={lang} isColorBlind={isColorBlind} onResponseStored={() => {}} />}
+            {activeTab === 'sandbox' && <EnumeratorSandboxPage lang={lang} isColorBlind={isColorBlind} />}
           </div>
 
         </div>

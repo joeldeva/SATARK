@@ -1,106 +1,204 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestWaWebVersion } from '@whiskeysockets/baileys';
-import qrcode from 'qrcode-terminal';
+import makeWASocket, {
+  DisconnectReason,
+  fetchLatestWaWebVersion,
+  useMultiFileAuthState,
+} from '@whiskeysockets/baileys';
 import axios from 'axios';
 import dotenv from 'dotenv';
-import pino from 'pino';
 import path from 'path';
+import pino from 'pino';
+import QRCode from 'qrcode';
+import qrcode from 'qrcode-terminal';
 import { fileURLToPath } from 'url';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
-const SECRET_KEY = process.env.SECRET_KEY || 'dev-secret-key-change-in-production';
+const BACKEND_URL = (process.env.BACKEND_URL || 'http://127.0.0.1:8001').replace(/\/$/, '');
+const BOT_NAME = process.env.BOT_NAME || 'SATARK';
+const SURVEY_ID = (process.env.SURVEY_ID || '').trim();
+const DEFAULT_LANGUAGE = process.env.DEFAULT_LANGUAGE || 'en';
+const AUTH_DIR = process.env.BAILEYS_AUTH_DIR || path.join(__dirname, 'auth_info_baileys');
+const QR_IMAGE_PATH = process.env.QR_IMAGE_PATH || path.join(__dirname, 'logs', 'whatsapp-qr.png');
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 15000);
 
-const logger = pino({ level: 'info' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
+const welcomedSenders = new Set();
+
+function extractText(message) {
+  const content = message?.message || {};
+  return (
+    content.conversation ||
+    content.extendedTextMessage?.text ||
+    content.imageMessage?.caption ||
+    content.videoMessage?.caption ||
+    content.documentMessage?.caption ||
+    content.buttonsResponseMessage?.selectedButtonId ||
+    content.templateButtonReplyMessage?.selectedId ||
+    content.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    ''
+  ).trim();
+}
+
+function isGreeting(text) {
+  return ['hi', 'hello', 'start', 'satark', 'survey'].includes(String(text).trim().toLowerCase());
+}
+
+function isRestart(text) {
+  return ['restart', 'reset', 'start over', '/restart'].includes(String(text).trim().toLowerCase());
+}
+
+function plainNumber(jid) {
+  return String(jid || '').replace(/@s\.whatsapp\.net$/, '').replace(/@g\.us$/, '');
+}
+
+function buildWebhookBody(sender, text, reset = false) {
+  const body = {
+    sender,
+    from: plainNumber(sender),
+    text,
+    language: DEFAULT_LANGUAGE,
+    channel: 'whatsapp',
+    reset,
+  };
+  if (SURVEY_ID) body.survey_id = SURVEY_ID;
+  return body;
+}
+
+function localIntro() {
+  return `Hi, I'm ${BOT_NAME}, the official survey assistant. Please fill this survey. I will ask one question at a time.`;
+}
+
+function formatOptions(options = []) {
+  if (!Array.isArray(options) || options.length === 0) return '';
+  return options
+    .map((option, index) => {
+      const label = option?.label_i18n?.[DEFAULT_LANGUAGE] || option?.label_i18n?.en || option?.label || option?.value;
+      return `${index + 1}. ${label}`;
+    })
+    .join('\n');
+}
+
+function formatOutbound(payload, backendReply, prependIntro = false) {
+  const prompt = payload?.prompt_text?.[DEFAULT_LANGUAGE] || payload?.prompt_text?.en || backendReply || '';
+  const options = formatOptions(payload?.options);
+  const type = payload?.type;
+  const pieces = [];
+
+  if (prependIntro) pieces.push(localIntro());
+  if (prompt) pieces.push(prompt);
+  if (options && type !== 'complete') {
+    pieces.push(`Reply with the option number or the answer text:\n${options}`);
+  }
+  if (type === 'complete') {
+    pieces.push(`Thank you for completing the survey with ${BOT_NAME}.`);
+  }
+
+  return pieces.join('\n\n').trim();
+}
+
+async function sendToBackend(sender, text, reset = false) {
+  const response = await axios.post(
+    `${BACKEND_URL}/api/v1/channels/whatsapp/webhook`,
+    buildWebhookBody(sender, text, reset),
+    {
+      timeout: REQUEST_TIMEOUT_MS,
+      headers: { 'Content-Type': 'application/json' },
+    },
+  );
+  return response.data;
+}
+
+async function handleInbound(sock, sender, text) {
+  const firstContact = !welcomedSenders.has(sender) && isGreeting(text);
+  const restart = isRestart(text);
+  const normalizedText = firstContact || restart ? 'hi' : text;
+
+  const data = await sendToBackend(sender, normalizedText, restart);
+  const reply = formatOutbound(data.payload, data.reply || data.reply_text, firstContact || restart);
+
+  welcomedSenders.add(sender);
+  if (reply) {
+    logger.info({ sender, type: data.payload?.type, node: data.payload?.node_id }, 'sending WhatsApp survey prompt');
+    await sock.sendMessage(sender, { text: reply });
+  }
+}
 
 async function connectToWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState(path.join(__dirname, 'auth_info_baileys'));
-
+  const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version, isLatest } = await fetchLatestWaWebVersion().catch(() => ({
-    version: [2, 3000, 1017577713], // fallback
-    isLatest: false
+    version: [2, 3000, 1017577713],
+    isLatest: false,
   }));
-  console.log(`Using WhatsApp Web version: ${version.join('.')}, isLatest: ${isLatest}`);
 
-  const sock = (makeWASocket.default || makeWASocket)({
+  logger.info(
+    {
+      backend: BACKEND_URL,
+      survey: SURVEY_ID || 'latest published',
+      version: version.join('.'),
+      isLatest,
+    },
+    `${BOT_NAME} WhatsApp bridge starting`,
+  );
+
+  const socketFactory = makeWASocket.default || makeWASocket;
+  const sock = socketFactory({
     version,
     auth: state,
-    logger: pino({ level: 'silent' }) // suppress verbose websocket traces
+    logger: pino({ level: process.env.BAILEYS_LOG_LEVEL || 'silent' }),
+    printQRInTerminal: false,
   });
 
-  sock.ev.on('connection.update', (update) => {
+  sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('\n--- SCAN QR CODE WITH WHATSAPP TO LOG IN ---');
+      await QRCode.toFile(QR_IMAGE_PATH, qr, { width: 640, margin: 2 });
+      console.log('\n--- SCAN THIS QR CODE WITH WHATSAPP LINKED DEVICES ---');
+      console.log(`QR image: ${QR_IMAGE_PATH}`);
       qrcode.generate(qr, { small: true });
-      console.log('--------------------------------------------\n');
+      console.log('------------------------------------------------------\n');
     }
 
     if (connection === 'close') {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log('WhatsApp connection closed due to:', lastDisconnect?.error, '. Reconnecting:', shouldReconnect);
-      if (shouldReconnect) {
-        connectToWhatsApp();
-      }
-    } else if (connection === 'open') {
-      console.log('WhatsApp connection successfully opened!');
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+      logger.warn({ statusCode, shouldReconnect }, 'WhatsApp connection closed');
+      if (shouldReconnect) connectToWhatsApp();
+    }
+
+    if (connection === 'open') {
+      logger.info(`${BOT_NAME} WhatsApp bridge connected`);
     }
   });
 
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('messages.upsert', async (m) => {
-    if (m.type !== 'notify') return;
+  sock.ev.on('messages.upsert', async (event) => {
+    if (event.type !== 'notify') return;
 
-    for (const msg of m.messages) {
+    for (const msg of event.messages || []) {
       if (msg.key.fromMe) continue;
-
       const sender = msg.key.remoteJid;
-      const messageText = (
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.buttonsResponseMessage?.selectedButtonId ||
-        msg.message?.templateButtonReplyMessage?.selectedId ||
-        ''
-      ).trim();
+      const text = extractText(msg);
+      if (!sender || !text) continue;
 
-      if (!messageText) continue;
-
-      console.log(`Received message from ${sender}: "${messageText}"`);
-
+      logger.info({ sender, text }, 'received WhatsApp message');
       try {
-        const response = await axios.post(
-          `${BACKEND_URL}/api/whatsapp/webhook`,
-          {
-            sender: sender,
-            text: messageText
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${SECRET_KEY}`
-            }
-          }
-        );
-
-        const reply = response.data.reply;
-        if (reply) {
-          console.log(`Sending reply to ${sender}: "${reply.replace(/\n/g, ' ')}"`);
-          await sock.sendMessage(sender, { text: reply });
-        }
+        await handleInbound(sock, sender, text);
       } catch (error) {
-        console.error('Error contacting SATARK backend:', error.message);
-        if (error.response) {
-          console.error('Backend error details:', error.response.data);
-        }
+        const details = error.response?.data || error.message;
+        logger.error({ sender, details }, 'SATARK backend bridge failed');
+        const status = error.response?.status ? ` Backend returned ${error.response.status}.` : '';
         await sock.sendMessage(sender, {
-          text: '⚠️ SATARK NSS Survey Assistant is currently experiencing connection issues. Please try again later.'
+          text: `${BOT_NAME} cannot reach the survey server right now.${status} Please make sure the SATARK backend is running and try again.`,
         });
       }
     }
   });
 }
 
-connectToWhatsApp().catch(err => console.error('Failed to run WhatsApp bot:', err));
+connectToWhatsApp().catch((error) => {
+  logger.error({ error }, 'Failed to run WhatsApp bot');
+  process.exitCode = 1;
+});

@@ -4,6 +4,9 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
+  // The SPA is mounted under /app on Firebase Hosting (the landing page owns "/").
+  // Assets therefore resolve from /app/assets/* both in dev and in the hosted build.
+  base: '/app/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

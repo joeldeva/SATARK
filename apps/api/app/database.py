@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from .config import settings
@@ -31,3 +31,51 @@ def init_db():
     import models.platform  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _repair_sqlite_dev_schema()
+
+
+def _repair_sqlite_dev_schema() -> None:
+    """Additive SQLite dev repair for columns introduced after create_all.
+
+    SQLite does not apply Alembic migrations automatically in local demo mode,
+    and ``create_all`` will not alter existing tables. Keep this deliberately
+    narrow: it only adds missing columns/indexes used by the current models.
+    Postgres still relies on Alembic.
+    """
+    if engine.dialect.name != "sqlite":
+        return
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        if "responses" in tables:
+            columns = _columns(inspector, "responses")
+            if "content_hash" not in columns:
+                conn.execute(text("ALTER TABLE responses ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''"))
+            if "prev_hash" not in columns:
+                conn.execute(text("ALTER TABLE responses ADD COLUMN prev_hash TEXT"))
+            if "chain_index" not in columns:
+                conn.execute(text("ALTER TABLE responses ADD COLUMN chain_index INTEGER"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_responses_chain_index ON responses (chain_index)"))
+
+        if "validation_results" in tables and "confidence" not in _columns(inspector, "validation_results"):
+            conn.execute(text("ALTER TABLE validation_results ADD COLUMN confidence FLOAT"))
+
+        if "classification_codes" in tables:
+            columns = _columns(inspector, "classification_codes")
+            for name, ddl in {
+                "family": "TEXT",
+                "sector": "TEXT",
+                "level": "TEXT",
+                "section": "TEXT",
+                "parent_code": "TEXT",
+            }.items():
+                if name not in columns:
+                    conn.execute(text(f"ALTER TABLE classification_codes ADD COLUMN {name} {ddl}"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_classification_codes_sector ON classification_codes (sector)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_classification_codes_section ON classification_codes (section)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_classification_codes_parent_code ON classification_codes (parent_code)"))
+
+
+def _columns(inspector, table_name: str) -> set[str]:
+    return {column["name"] for column in inspector.get_columns(table_name)}

@@ -88,6 +88,21 @@ def evaluate_intelligence_contract(
     layers = _layers(result.validation)
     suggestion = _code_suggestion(normalized_answers.get("occupation", "")) if active_question_id == "occupation" else None
 
+    # Per-method proof: which methods ran, each one's confidence in this answer,
+    # and which ones flagged it. The overall decision is driven by these scores.
+    methods = [
+        {
+            "name": layer["layer"],
+            "method": layer["method"],
+            "status": layer["status"],
+            "confidence": layer["confidence"],
+            "flagged": layer["flagged"],
+            "reason": layer["reason"],
+        }
+        for layer in layers
+    ]
+    flagged_by = [m["name"] for m in methods if m["flagged"]]
+
     return {
         "confidence": trust["confidence"],
         "trustLevel": trust["risk_level"],
@@ -95,6 +110,8 @@ def evaluate_intelligence_contract(
         "nextQuestionId": result.adaptive.get("target"),
         "reason": _primary_reason(trust, result.adaptive),
         "layers": layers,
+        "methods": methods,
+        "flaggedBy": flagged_by,
         "scores": {
             "engagement": result.behaviour.get("engagement", 100),
             "fatigue": result.behaviour.get("fatigue", 0),
@@ -149,13 +166,22 @@ def _active_rules(answers: dict[str, Any]) -> list[dict[str, Any]]:
     return active
 
 
+_METHOD_LABEL = {
+    "Completeness": "Required-field presence check",
+    "Range": "Bounds & type-range check",
+    "Cross-field": "Cross-field consistency rule",
+    "Context": "Per-stratum reference band + Bayesian anomaly",
+    "Behaviour": "Paradata fraud-signal analysis",
+}
+
+
 def _layers(validation: list[dict[str, Any]]) -> list[dict[str, Any]]:
     buckets: dict[str, dict[str, Any]] = {
-        "Completeness": {"layer": "Completeness", "status": "pass", "reason": "Required responses are present"},
-        "Range": {"layer": "Range", "status": "pass", "reason": "Numeric answers are inside permitted ranges"},
-        "Cross-field": {"layer": "Cross-field", "status": "pass", "reason": "Cross-field rules are consistent"},
-        "Context": {"layer": "Context", "status": "pass", "reason": "Values are within reference distributions"},
-        "Behaviour": {"layer": "Behaviour", "status": "pass", "reason": "Response behaviour is consistent with expected survey pace"},
+        "Completeness": {"layer": "Completeness", "status": "pass", "reason": "Required responses are present", "confidence": 100.0},
+        "Range": {"layer": "Range", "status": "pass", "reason": "Numeric answers are inside permitted ranges", "confidence": 100.0},
+        "Cross-field": {"layer": "Cross-field", "status": "pass", "reason": "Cross-field rules are consistent", "confidence": 100.0},
+        "Context": {"layer": "Context", "status": "pass", "reason": "Values are within reference distributions", "confidence": 100.0},
+        "Behaviour": {"layer": "Behaviour", "status": "pass", "reason": "Response behaviour is consistent with expected survey pace", "confidence": 100.0},
     }
     priority = {"fail": 2, "warn": 1, "pass": 0}
 
@@ -163,8 +189,15 @@ def _layers(validation: list[dict[str, Any]]) -> list[dict[str, Any]]:
         label = _label_for_check(check)
         current = buckets[label]
         status = "warn" if check.get("status") == "warning" else check.get("status", "pass")
+        # the method's confidence in this answer = the weakest (worst) check it ran
+        current["confidence"] = min(current["confidence"], float(check.get("confidence", 100.0)))
         if priority.get(status, 0) >= priority.get(current["status"], 0):
             current.update({"status": status, "reason": check.get("reason") or current["reason"]})
+
+    for label, bucket in buckets.items():
+        bucket["confidence"] = round(bucket["confidence"], 1)
+        bucket["method"] = _METHOD_LABEL[label]
+        bucket["flagged"] = bucket["status"] != "pass"
 
     return list(buckets.values())
 

@@ -24,10 +24,38 @@ def list_validation_rules(db: Session, survey_id: str | None) -> List[Dict[str, 
     return [_rule_to_dict(r) for r in query.all()]
 
 
+# Required params per rule_type — a rule that can't be read by the engine is
+# worse than no rule (it silently passes), so reject malformed rules on write.
+_RULE_PARAM_SCHEMA: dict[str, tuple[str, ...]] = {
+    "required": ("field",),
+    "range": ("field",),  # plus at least one of min/max (checked below)
+    "cross_field": ("if_field", "if_op", "if_value", "then_field", "then_op", "then_value"),
+    "context": ("field", "ref_key"),
+    "logic": ("field", "requires_field"),
+}
+_ALLOWED_OPS = {"eq", "ne", "gt", "lt", "gte", "lte", "in", "present"}
+
+
+def validate_rule_params(rule_type: str, params: Dict[str, Any]) -> None:
+    """Raise HTTP 400 if a rule's params can't be evaluated by the engine."""
+    params = params or {}
+    if rule_type not in _RULE_PARAM_SCHEMA:
+        raise HTTPException(status_code=400, detail=f"Unknown rule_type '{rule_type}'")
+    missing = [k for k in _RULE_PARAM_SCHEMA[rule_type] if params.get(k) in (None, "")]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"{rule_type} rule missing params: {missing}")
+    if rule_type == "range" and params.get("min") is None and params.get("max") is None:
+        raise HTTPException(status_code=400, detail="range rule requires at least one of 'min'/'max'")
+    for op_key in ("if_op", "then_op"):
+        if op_key in params and params[op_key] not in _ALLOWED_OPS:
+            raise HTTPException(status_code=400, detail=f"{op_key}='{params[op_key]}' not in {sorted(_ALLOWED_OPS)}")
+
+
 def create_validation_rule(db: Session, payload: Dict[str, Any]) -> Dict[str, Any]:
     for field in ("survey_id", "field", "rule_type"):
         if not payload.get(field):
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+    validate_rule_params(str(payload["rule_type"]), payload.get("params") or {})
     row = ValidationRuleRecord(
         survey_id=str(payload["survey_id"]),
         field=str(payload["field"]),
@@ -79,17 +107,23 @@ def ensure_default_validation_rules(db: Session, survey_id: str, question_graph:
                 )
             )
 
-    if {"occupation", "income"}.issubset(fields):
+    # Detect the occupation/income fields SEMANTICALLY (by id/text/tags/code),
+    # not by exact id — so LLM-generated surveys (ids like LAB_001, q_income)
+    # still get the cross-field + context layers wired and they actually fire.
+    occupation_field = _detect_field(nodes, _OCCUPATION_KEYWORDS, code_types={"NCO"})
+    income_field = _detect_field(nodes, _INCOME_KEYWORDS)
+
+    if occupation_field and income_field:
         created.append(
             ValidationRuleRecord(
                 survey_id=survey_id,
-                field="income",
+                field=income_field,
                 rule_type="cross_field",
                 params={
-                    "if_field": "occupation",
+                    "if_field": occupation_field,
                     "if_op": "eq",
                     "if_value": "Unemployed",
-                    "then_field": "income",
+                    "then_field": income_field,
                     "then_op": "lte",
                     "then_value": 50000,
                 },
@@ -97,13 +131,13 @@ def ensure_default_validation_rules(db: Session, survey_id: str, question_graph:
                 reason_template="Income cannot contradict unemployed status",
             )
         )
-    if "income" in fields:
+    if income_field:
         created.append(
             ValidationRuleRecord(
                 survey_id=survey_id,
-                field="income",
+                field=income_field,
                 rule_type="context",
-                params={"field": "income", "ref_key": "income"},
+                params={"field": income_field, "ref_key": "income"},
                 severity="warning",
                 reason_template="Income should be inside the regional reference band",
             )
@@ -136,6 +170,38 @@ def delete_validation_rule(db: Session, rule_id: str) -> Dict[str, Any]:
     db.delete(row)
     db.commit()
     return {"deleted": rule_id}
+
+
+_INCOME_KEYWORDS = ("income", "earning", "earnings", "salary", "salaried", "wage", "wages", "remuneration")
+_OCCUPATION_KEYWORDS = ("occupation", "employment status", "employment", "profession", "occupational", "principal activity", "what is your job", "job title")
+
+
+def _node_searchable(node: Dict[str, Any]) -> str:
+    parts = [str(node.get("id") or "")]
+    q = node.get("q") or node.get("text")
+    if isinstance(q, dict):
+        parts.extend(str(v) for v in q.values())
+    elif q:
+        parts.append(str(q))
+    parts.extend(str(t) for t in (node.get("tags") or []))
+    for key in ("codeType", "code_type", "standard_code", "category", "subdomain"):
+        if node.get(key):
+            parts.append(str(node[key]))
+    return " ".join(parts).lower()
+
+
+def _detect_field(nodes: list, keywords: tuple, code_types: set | None = None) -> str | None:
+    code_types = code_types or set()
+    for node in nodes or []:
+        if not node.get("id") or node.get("type") == "adaptive":
+            continue
+        text = _node_searchable(node)
+        if any(kw in text for kw in keywords):
+            return str(node.get("id"))
+        code = str(node.get("codeType") or node.get("code_type") or node.get("standard_code") or "").upper()
+        if code_types and code in code_types:
+            return str(node.get("id"))
+    return None
 
 
 def _rule_to_dict(row: ValidationRuleRecord) -> Dict[str, Any]:

@@ -44,8 +44,10 @@ class SurveyGenerator:
         logger.info("Survey generated: %s (%s questions)", survey["survey_id"], len(questions))
         return survey
 
+    _LLM_PLANNERS = ("local_llm", "openrouter")
+
     def _llm_draft_questions(self, intent: ParsedIntent) -> List[Dict]:
-        if intent.planner != "local_llm":
+        if intent.planner not in self._LLM_PLANNERS:
             return []
         return [copy.deepcopy(question) for question in intent.draft_questions]
 
@@ -100,15 +102,22 @@ class SurveyGenerator:
             "metadata": {
                 "source_prompt": prompt,
                 "generation_method": (
-                    "local_llm_intent_planner_rules_keyword_retrieval"
-                    if intent.planner == "local_llm"
+                    f"{intent.planner}_intent_planner_rules_keyword_retrieval"
+                    if intent.planner in self._LLM_PLANNERS
                     else "deterministic_rules_keyword_retrieval"
                 ),
                 "llm": {
-                    "provider": "ollama" if intent.planner == "local_llm" else "none",
+                    "provider": (
+                        "openrouter" if intent.planner == "openrouter"
+                        else "ollama" if intent.planner == "local_llm"
+                        else "none"
+                    ),
                     "model": intent.planner_model,
                     "role": "intent_and_draft_question_planning",
-                    "privacy": "local_inference_no_external_api",
+                    "privacy": (
+                        "online_openrouter" if intent.planner == "openrouter"
+                        else "local_inference_no_external_api"
+                    ),
                     "confidence": intent.planner_confidence,
                     "reason": intent.planner_reason,
                 },

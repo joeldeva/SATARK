@@ -13,7 +13,7 @@ export interface MapMarker {
   title: string;
   subtitle?: string;
   badge?: string;
-  badgeColor?: string; // CSS color string (e.g. hex)
+  badgeColor?: string;
 }
 
 interface LeafletMapProps {
@@ -22,6 +22,7 @@ interface LeafletMapProps {
   markers: MapMarker[];
   onMarkerClick?: (markerId: string) => void;
   height?: string;
+  offlineTiles?: boolean;
 }
 
 export const LeafletMap: React.FC<LeafletMapProps> = ({
@@ -29,110 +30,192 @@ export const LeafletMap: React.FC<LeafletMapProps> = ({
   zoom,
   markers,
   onMarkerClick,
-  height = "320px",
+  height = '320px',
+  offlineTiles = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const baseLayerRef = useRef<L.LayerGroup | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+
+  const buildBounds = (items: MapMarker[]) => {
+    const points = items.length > 0
+      ? items.map((marker) => [marker.lat, marker.lng] as [number, number])
+      : [center];
+    return L.latLngBounds(points).pad(items.length > 1 ? 0.55 : 0.08);
+  };
+
+  const extractPincode = (marker: MapMarker) => {
+    const match = `${marker.subtitle || ''} ${marker.title}`.match(/\b\d{6}\b/);
+    return match?.[0] || marker.badge || 'Field cell';
+  };
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // Clean up existing map instance if any (precautionary)
     if (mapRef.current) {
       mapRef.current.remove();
       mapRef.current = null;
     }
 
-    // Initialize map
     const map = L.map(containerRef.current, {
-      center: center,
-      zoom: zoom,
+      center,
+      zoom,
       zoomControl: true,
       fadeAnimation: true,
+      preferCanvas: true,
+      minZoom: 8,
+      maxZoom: 15,
     });
 
     mapRef.current = map;
 
-    // Add standard OpenStreetMap Tile Layer
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      maxZoom: 19
-    }).addTo(map);
+    if (!offlineTiles) {
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        minZoom: 1,
+        crossOrigin: true,
+        className: 'satark-osm-tiles',
+        attribution: '&copy; OpenStreetMap contributors',
+      }).addTo(map);
+    }
 
-    // Dynamic marker layer group
+    map.attributionControl.setPrefix(offlineTiles ? 'Offline pincode grid' : 'Leaflet map');
+
+    const baseLayer = L.layerGroup().addTo(map);
+    baseLayerRef.current = baseLayer;
+
     const markersLayer = L.layerGroup().addTo(map);
     markersLayerRef.current = markersLayer;
 
-    // Trigger map invalidation after slight delay to fix container sizing bugs inside relative layouts
-    const resizeTimeout = setTimeout(() => {
+    const resizeTimeout = window.setTimeout(() => {
       map.invalidateSize();
     }, 150);
 
+    if ('ResizeObserver' in window) {
+      resizeObserverRef.current = new ResizeObserver(() => {
+        window.setTimeout(() => map.invalidateSize(), 50);
+      });
+      resizeObserverRef.current.observe(containerRef.current);
+    }
+
     return () => {
-      clearTimeout(resizeTimeout);
+      window.clearTimeout(resizeTimeout);
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       map.remove();
       mapRef.current = null;
+      baseLayerRef.current = null;
     };
-  }, []);
+  }, [center, offlineTiles, zoom]);
 
-  // Update center and zoom dynamically
   useEffect(() => {
     if (mapRef.current) {
       mapRef.current.setView(center, zoom);
     }
   }, [center, zoom]);
 
-  // Sync and plot markers dynamically
   useEffect(() => {
     if (!mapRef.current || !markersLayerRef.current) return;
 
-    // Clear previous markers
     markersLayerRef.current.clearLayers();
+    baseLayerRef.current?.clearLayers();
 
-    markers.forEach((m) => {
-      const color = m.badgeColor || '#14387F'; // Default gov blue
+    if (baseLayerRef.current) {
+      const bounds = buildBounds(markers);
+      const south = bounds.getSouth();
+      const north = bounds.getNorth();
+      const west = bounds.getWest();
+      const east = bounds.getEast();
 
-      // Custom HTML Marker using L.divIcon to avoid broken Vite image import URLs
-      const svgIcon = L.divIcon({
+      L.rectangle(bounds, {
+        color: '#9fb2c7',
+        weight: 1.5,
+        fillColor: '#eef6f8',
+        fillOpacity: offlineTiles ? 0.95 : 0.16,
+      }).addTo(baseLayerRef.current);
+
+      const latStep = Math.max((north - south) / 5, 0.01);
+      const lngStep = Math.max((east - west) / 5, 0.01);
+      for (let i = 1; i < 5; i += 1) {
+        const lat = south + latStep * i;
+        const lng = west + lngStep * i;
+        L.polyline([[lat, west], [lat, east]], { color: offlineTiles ? '#d6e0ea' : '#5f7fa5', opacity: offlineTiles ? 1 : 0.38, weight: 1, dashArray: '5 6' }).addTo(baseLayerRef.current);
+        L.polyline([[south, lng], [north, lng]], { color: offlineTiles ? '#d6e0ea' : '#5f7fa5', opacity: offlineTiles ? 1 : 0.38, weight: 1, dashArray: '5 6' }).addTo(baseLayerRef.current);
+      }
+
+      const uniqueCells = new Map<string, MapMarker>();
+      markers.forEach((marker) => uniqueCells.set(extractPincode(marker), marker));
+      uniqueCells.forEach((marker, label) => {
+        L.circle([marker.lat, marker.lng], {
+          radius: 900,
+          color: '#5f7fa5',
+          weight: 1,
+          fillColor: '#d9e9f2',
+          fillOpacity: offlineTiles ? 0.55 : 0.26,
+        }).addTo(baseLayerRef.current!);
+
+        L.marker([marker.lat + 0.006, marker.lng], {
+          interactive: false,
+          icon: L.divIcon({
+            className: 'satark-map-label',
+            html: `<span>${label}</span>`,
+            iconSize: [80, 18],
+            iconAnchor: [40, 9],
+          }),
+        }).addTo(baseLayerRef.current!);
+      });
+    }
+
+    markers.forEach((markerData) => {
+      const color = markerData.badgeColor || '#14387F';
+      const markerIcon = L.divIcon({
         className: 'custom-leaflet-marker-wrapper',
         html: `
-          <div class="relative flex items-center justify-center" style="width: 24px; height: 24px;">
-            <div class="absolute w-6 h-6 rounded-full opacity-35 animate-ping" style="background-color: ${color};"></div>
-            <div class="absolute w-4.5 h-4.5 rounded-full border-2 border-white flex items-center justify-center font-mono text-[9px] font-black text-white shadow-lg cursor-pointer transform hover:scale-130 transition-transform" style="background-color: ${color};" title="${m.title}">
-              ◉
-            </div>
+          <div style="width:24px;height:24px;position:relative;display:flex;align-items:center;justify-content:center;">
+            <div style="position:absolute;width:24px;height:24px;border-radius:999px;opacity:.24;background:${color};"></div>
+            <div style="position:absolute;width:16px;height:16px;border-radius:999px;border:2px solid white;box-shadow:0 8px 16px rgba(15,23,42,.22);cursor:pointer;background:${color};" title="${markerData.title}"></div>
           </div>
         `,
         iconSize: [24, 24],
         iconAnchor: [12, 12],
       });
 
-      const marker = L.marker([m.lat, m.lng], { icon: svgIcon })
+      const marker = L.marker([markerData.lat, markerData.lng], { icon: markerIcon })
         .addTo(markersLayerRef.current!)
         .bindPopup(`
-          <div style="font-family: 'Noto Sans', sans-serif; font-size: 12px; color: #1a1a1a; text-align: left; padding: 4px; line-height: 1.4;">
-            <strong style="color: #0b2e5e; display: block; font-size: 13px; margin-bottom: 2px;">${m.title}</strong>
-            ${m.subtitle ? `<span style="color: #5a6577; display: block; margin-bottom: 6px;">${m.subtitle}</span>` : ''}
-            ${m.badge ? `<span style="display: inline-block; background-color: ${color}15; color: ${color}; font-size: 9px; font-weight: 500; border: 1px solid ${color}35; border-radius: 4px; padding: 1px 6px; text-transform: uppercase; font-family: monospace;">${m.badge}</span>` : ''}
+          <div style="font-family:Inter,'Source Sans 3','Noto Sans',sans-serif;font-size:12px;color:#1a1a1a;text-align:left;padding:4px;line-height:1.4;">
+            <strong style="color:#0b2e5e;display:block;font-size:13px;margin-bottom:2px;">${markerData.title}</strong>
+            ${markerData.subtitle ? `<span style="color:#5a6577;display:block;margin-bottom:6px;">${markerData.subtitle}</span>` : ''}
+            ${markerData.badge ? `<span style="display:inline-block;background-color:${color}15;color:${color};font-size:9px;font-weight:600;border:1px solid ${color}35;border-radius:4px;padding:1px 6px;text-transform:uppercase;">${markerData.badge}</span>` : ''}
           </div>
         `);
 
       if (onMarkerClick) {
-        marker.on('click', () => {
-          onMarkerClick(m.id);
-        });
+        marker.on('click', () => onMarkerClick(markerData.id));
       }
     });
 
-  }, [markers, onMarkerClick]);
+    if (markers.length > 0) {
+      mapRef.current.fitBounds(buildBounds(markers), { maxZoom: zoom, animate: true });
+      window.setTimeout(() => mapRef.current?.invalidateSize(), 50);
+    } else {
+      mapRef.current.setView(center, zoom);
+    }
+  }, [markers, onMarkerClick, center, zoom, offlineTiles]);
 
   return (
-    <div 
-      className="w-full relative rounded-xl overflow-hidden border border-slate-200 shadow-inner"
+    <div
+      className="satark-leaflet-map w-full relative rounded-xl overflow-hidden border border-slate-200 shadow-inner bg-slate-50"
       style={{ height }}
     >
-      <div ref={containerRef} className="w-full h-full" id={`leaflet-map-div-${center[0].toFixed(2)}`} />
+      <div ref={containerRef} className="w-full h-full" />
+      {markers.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-50/75 text-[11px] font-bold text-slate-500">
+          No mapped records for the selected filter
+        </div>
+      )}
     </div>
   );
 };

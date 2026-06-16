@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { api, db } from '../api';
 import { Enumerator, Survey, SurveyResponse } from '../types';
+import { INITIAL_SURVEYS, PINCODE_LOCATIONS, SURVEY_TYPES } from '../mockData';
 import { translations } from '../i18n';
 import { TrustBadge, ReasonPopover } from './TrustComponents';
 import { 
@@ -101,6 +102,29 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
     { id: 'HH-TN-0047', summary: 'Kavin P, Age 61 · Retired', priorVisits: 3, lat: 13.0850, lng: 80.2730 }
   ];
   const [selectedHouseholds, setSelectedHouseholds] = useState<string[]>(['HH-TN-0042', 'HH-TN-0043']);
+  const householdPincodeMap: Record<string, string> = {
+    'HH-TN-0042': '600001',
+    'HH-TN-0043': '600028',
+    'HH-TN-0044': '600002',
+    'HH-TN-0045': '600040',
+    'HH-TN-0046': '641001',
+    'HH-TN-0047': '625001',
+    'HH-TN-0048': '600001',
+    'HH-TN-0049': '600040'
+  };
+
+  const getPincodeLocation = (householdId: string) => {
+    const pincode = householdPincodeMap[householdId] || '600001';
+    return PINCODE_LOCATIONS.find((location) => location.pincode === pincode) || PINCODE_LOCATIONS[0];
+  };
+
+  const statusMarker = (status: FODAssignment['status']) => {
+    if (status === 'accepted') return { color: '#1D9E75', label: 'Completed' };
+    if (status === 'in_progress') return { color: '#BA7517', label: 'In Progress' };
+    if (status === 're_interview') return { color: '#E24B4A', label: 'Flagged' };
+    if (status === 'submitted') return { color: '#14387F', label: 'Verified' };
+    return { color: '#64748B', label: 'Assigned' };
+  };
 
   // Wizard Step 3 Enumerators deployment states
   const [assignedEnumeratorIds, setAssignedEnumeratorIds] = useState<string[]>([]);
@@ -109,7 +133,7 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
   const [isDeployConfirmOpen, setIsDeployConfirmOpen] = useState(false);
 
   // Board Monitor States
-  const [selectedMonitorSurveyId, setSelectedMonitorSurveyId] = useState<string>('sur_plfs_2026');
+  const [selectedMonitorSurveyId, setSelectedMonitorSurveyId] = useState<string>('DDI-IND-MOSPI-PLFS26');
 
   // Load basic state and persist elements
   useEffect(() => {
@@ -284,6 +308,7 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
   const enumsInField = enumerators.filter(e => e.assignedCount > 0).length;
   const submissionsToday = assignments.filter(a => a.status === 'submitted' || a.status === 'accepted').length;
   const flaggedToday = assignments.filter(a => a.status === 're_interview').length;
+  const officialSurvey = surveys.find(s => s.id === selectedSurveyId) || surveys[0] || INITIAL_SURVEYS[0];
 
   return (
     <div className="space-y-6" id="fod-workspace-container">
@@ -299,12 +324,12 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
             <p className="text-xs text-slate-500 font-medium">Coordinate, assign bounds, monitor field trust performance indicators and audits</p>
           </div>
 
-          <div className="flex bg-slate-50 border border-slate-200 p-1 rounded-xl text-xs font-bold gap-1 self-stretch sm:self-auto">
+          <div className="flex flex-wrap bg-slate-50 border border-slate-200 p-1 rounded-xl text-xs font-bold gap-1 self-stretch sm:self-auto">
             {(['dashboard', 'enumerators', 'assignments', 'monitor', 'inspections'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveSubTab(tab)}
-                className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-center transition-colors uppercase text-[10px] tracking-wider ${
+                className={`min-w-[118px] flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-center transition-colors uppercase text-[10px] tracking-wider ${
                   activeSubTab === tab 
                     ? 'bg-indigo-900 text-white shadow font-black' 
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -367,6 +392,42 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
             </div>
           </section>
 
+          <section className="bg-white border border-slate-200/80 p-5 rounded-2xl shadow-sm space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-900">{officialSurvey.shortName || 'PLFS 2026'} Field Deployment Snapshot</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {officialSurvey.coverageArea || 'Tamil Nadu'} / 1250 HH / {officialSurvey.coverage || 92}% coverage / Trust {officialSurvey.qualityScore || 96}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-bold w-full lg:w-auto">
+                <div className="min-w-0 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <span className="block text-slate-400 uppercase">Survey</span>
+                  <strong className="block text-slate-900 truncate" title={officialSurvey.shortName || officialSurvey.name_en}>{officialSurvey.shortName || officialSurvey.name_en}</strong>
+                </div>
+                <div className="min-w-0 p-2 rounded-lg bg-slate-50 border border-slate-200">
+                  <span className="block text-slate-400 uppercase">State</span>
+                  <strong className="text-slate-900">Tamil Nadu</strong>
+                </div>
+                <div className="min-w-0 p-2 rounded-lg bg-emerald-50 border border-emerald-100">
+                  <span className="block text-emerald-700 uppercase">Coverage</span>
+                  <strong className="text-emerald-900">{officialSurvey.coverage || 92}%</strong>
+                </div>
+                <div className="min-w-0 p-2 rounded-lg bg-blue-50 border border-blue-100">
+                  <span className="block text-blue-700 uppercase">Trust</span>
+                  <strong className="text-blue-950">{officialSurvey.qualityScore || 96}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SURVEY_TYPES.map((type) => (
+                <span key={type} className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-[10px] font-bold text-slate-600">
+                  {type}
+                </span>
+              ))}
+            </div>
+          </section>
+
           {/* Row 2: Progress map & trust snapshot split */}
           <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left 2/3: Field Progress Board list */}
@@ -378,7 +439,7 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
                 </span>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto rounded-xl border border-slate-100">
                 <table className="w-full text-xs text-left" role="presentation">
                   <thead className="bg-slate-50 text-[10px] text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100">
                     <tr>
@@ -474,42 +535,35 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
             <div className="text-left">
               <h3 className="font-extrabold text-sm text-slate-800 flex items-center gap-1.5">
                 <Map className="w-4 h-4 text-slate-500" />
-                Live Assignment Gis Map Monitor
+                Pincode Intelligence Map Monitor
               </h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">Real-time GPS pins synced dynamically with active paradata network telemetry layers</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Pincode to latitude/longitude lookup places every household marker on the field grid.</p>
             </div>
 
             {/* Real Interactive Leaflet Map for active surveys */}
-            <div className="relative w-full h-[320px] rounded-2xl overflow-hidden shadow-inner">
+            <div className="relative w-full min-h-[340px] rounded-2xl overflow-hidden shadow-inner">
               <LeafletMap 
                 center={[13.0827, 80.2707]} 
                 zoom={12} 
-                height="320px"
-                markers={assignments.map((asg, idx) => {
-                  let badgeColor = '#5A6577'; // Gray/Assigned
-                  if (asg.status === 'in_progress') badgeColor = '#BA7517'; // Amber/In Progress
-                  else if (asg.status === 'submitted') badgeColor = '#14387F'; // Gov Blue/Submitted
-                  else if (asg.status === 'accepted') badgeColor = '#1D9E75'; // Trust Green/Passed
-                  else if (asg.status === 're_interview') badgeColor = '#E24B4A'; // Trust Red/Re-interview
-
-                  // Scatter slightly to avoid perfect superposition in mock dataset coordinates
-                  const latSeed = 13.0827 + (idx * 0.006 - 0.015);
-                  const lngSeed = 80.2707 + (idx * 0.007 - 0.012);
+                height="340px"
+                markers={assignments.map((asg) => {
+                  const marker = statusMarker(asg.status);
+                  const location = getPincodeLocation(asg.hhId);
 
                   return {
                     id: asg.id,
-                    lat: latSeed,
-                    lng: lngSeed,
+                    lat: location.lat,
+                    lng: location.lng,
                     title: `Household ${asg.hhId}`,
-                    subtitle: `Collector: ${asg.enumeratorName} | Prior visits: 1`,
-                    badge: asg.status.toUpperCase().replace('_', ' '),
-                    badgeColor: badgeColor
+                    subtitle: `${location.pincode} - ${location.locality}, ${location.district} | Collector: ${asg.enumeratorName}`,
+                    badge: marker.label,
+                    badgeColor: marker.color
                   };
                 })}
               />
 
               {/* Legend overlay block */}
-              <div className="absolute bottom-4 left-4 bg-white/95 border border-slate-300 shadow-md p-3 rounded-lg text-[9px] font-bold text-slate-650 grid grid-cols-2 gap-2 z-20">
+              <div className="absolute bottom-4 left-4 max-w-[260px] bg-white/95 border border-slate-300 shadow-md p-3 rounded-lg text-[9px] font-bold text-slate-650 grid grid-cols-2 gap-2 z-20">
                 <div className="flex items-center gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-full bg-slate-400 border border-slate-300" />
                   <span>Assigned</span>
@@ -520,11 +574,11 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-full bg-gov-blue border border-indigo-300" />
-                  <span>Submitted</span>
+                  <span>Verified</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-full bg-trust-green border border-emerald-300" />
-                  <span>Passed</span>
+                  <span>Completed</span>
                 </div>
                 <div className="flex items-center gap-1.5 col-span-2">
                   <div className="w-2.5 h-2.5 rounded-full bg-trust-red border border-rose-300 animate-pulse" />
@@ -806,7 +860,7 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
             <div className="space-y-4">
               <h3 className="font-bold text-sm text-slate-800">Step 1 — Choose Published Survey Block</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {surveys.map(s => {
+                {(surveys.length ? surveys : INITIAL_SURVEYS).map(s => {
                   const isSelected = selectedSurveyId === s.id;
                   return (
                     <div 
@@ -825,6 +879,28 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
                         }`} />
                       </div>
                       <h4 className="font-bold text-slate-800 text-xs mt-2">{s.name_en}</h4>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-slate-600">
+                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
+                          <span className="block text-slate-400 uppercase font-black">Coverage Area</span>
+                          <strong>{s.coverageArea || 'District Level'}</strong>
+                        </div>
+                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
+                          <span className="block text-slate-400 uppercase font-black">Target Population</span>
+                          <strong>{s.targetPopulation || 'Households'}</strong>
+                        </div>
+                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
+                          <span className="block text-slate-400 uppercase font-black">Mode</span>
+                          <strong>{s.mode || 'CAPI'}</strong>
+                        </div>
+                        <div className="p-2 rounded-lg bg-slate-50 border border-slate-100">
+                          <span className="block text-slate-400 uppercase font-black">Enumerators</span>
+                          <strong>{s.enumeratorCount || 150}</strong>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-[10px] font-bold">
+                        <span className="font-mono text-slate-400">{s.ddiId || s.id}</span>
+                        <span className={`px-2 py-0.5 rounded ${s.status === 'Published' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{s.status === 'Published' ? 'Active' : 'Draft'}</span>
+                      </div>
                       <p className="text-[10.5px] text-slate-500 mt-1">{s.questions.length} questions block · English, Hindi, Tamil formats</p>
                     </div>
                   );
@@ -849,7 +925,7 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
               <h3 className="font-bold text-xs uppercase tracking-wider text-slate-400">Step 2 — Define Geography Bounds</h3>
               
               {/* Tabs: Cascading Selectors vs Direct LGD/Pin code */}
-              <div className="flex border-b border-slate-200 text-xs font-bold">
+              <div className="flex flex-wrap border-b border-slate-200 text-xs font-bold">
                 <button 
                   onClick={() => setDirectInputTab('cascading')}
                   className={`py-2 px-3 border-b-2 transition-colors ${directInputTab === 'cascading' ? 'border-indigo-900 text-indigo-900 font-extrabold' : 'border-transparent text-slate-400'}`}
@@ -878,7 +954,7 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
 
               {/* Cascading selectors row */}
               {directInputTab === 'cascading' && (
-                <div className="grid grid-cols-4 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 text-xs">
                   <div>
                     <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">State</label>
                     <select value={geoState} onChange={e => setGeoState(e.target.value)} className="w-full p-2 border border-slate-200 bg-white rounded-lg">
@@ -940,7 +1016,7 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
               )}
 
               {/* Split layout: Households table VS Map view (50% each sync) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch border-t border-slate-100 pt-3">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch border-t border-slate-100 pt-3">
                 {/* Household choosing table */}
                 <div className="space-y-2 text-left">
                   <div className="flex justify-between items-center bg-slate-50 p-2 rounded-lg text-[10px] text-slate-500 font-bold">
@@ -959,7 +1035,7 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
                       return (
                         <div 
                           key={hh.id}
-                          className={`p-2.5 rounded-xl border flex items-center justify-between transition-colors ${
+                          className={`p-2.5 rounded-xl border flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between transition-colors ${
                             isChecked ? 'bg-indigo-50/20 border-indigo-200' : 'bg-white border-slate-200'
                           }`}
                         >
@@ -976,8 +1052,8 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
                             </div>
                           </div>
                           
-                          <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 py-0.5 px-1.5 rounded">
-                            {hh.priorVisits} prior visits
+                          <span className="self-start sm:self-auto text-[9px] font-mono font-bold text-slate-400 bg-slate-100 py-0.5 px-1.5 rounded whitespace-nowrap">
+                            PIN {householdPincodeMap[hh.id] || '600001'} / {hh.priorVisits} visits
                           </span>
                         </div>
                       );
@@ -986,22 +1062,23 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
                 </div>
 
                 {/* Shaded GIS local households map */}
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl flex flex-col p-3 relative h-64 md:h-auto min-h-60 animate-fadeIn justify-between">
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl flex flex-col p-3 relative min-h-[280px] animate-fadeIn justify-between">
                   <span className="text-[10px] text-slate-550 font-bold uppercase tracking-wider block mb-1">Region GIS local household selector</span>
                   
-                  <div className="w-full flex-1 relative h-[180px]">
+                  <div className="w-full flex-1 relative min-h-[220px]">
                     <LeafletMap 
                       center={[13.0827, 80.2707]} 
                       zoom={13} 
-                      height="180px"
+                      height="220px"
                       markers={householdPool.map((hh) => {
                         const isSelected = selectedHouseholds.includes(hh.id);
+                        const location = getPincodeLocation(hh.id);
                         return {
                           id: hh.id,
-                          lat: hh.lat,
-                          lng: hh.lng,
+                          lat: location.lat,
+                          lng: location.lng,
                           title: `Household ${hh.id}`,
-                          subtitle: hh.summary,
+                          subtitle: `${hh.summary} | PIN ${location.pincode}, ${location.locality}`,
                           badge: isSelected ? 'Selected' : 'Click to Select',
                           badgeColor: isSelected ? '#14387F' : '#64748B'
                         };
@@ -1197,7 +1274,9 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
                 onChange={e => setSelectedMonitorSurveyId(e.target.value)}
                 className="p-1 px-3.5 border border-slate-200 bg-slate-50 rounded-lg focus:outline-indigo-500 font-serif text-slate-900 font-bold"
               >
-                <option value="sur_plfs_2026">Periodic Labour Force Survey (PLFS-2026)</option>
+                {(surveys.length ? surveys : INITIAL_SURVEYS).map((survey) => (
+                  <option key={survey.id} value={survey.id}>{survey.shortName || survey.name_en}</option>
+                ))}
               </select>
             </div>
 

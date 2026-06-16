@@ -9,6 +9,7 @@ from models.platform import (
     ClassificationCode,
     EnumeratorProfile,
     Household,
+    MockIdentity,
     Permission,
     PlatformUser,
     ReferenceDistribution,
@@ -46,6 +47,7 @@ def seed_core_data(db, project_root: Path) -> None:
     db.flush()  # ensure surveys row exists before adaptive_logic FKs it
     _seed_adaptive_logic(db, seed)
     _seed_assignments(db, seed)
+    _seed_mock_identities(db)
     db.commit()
 
 
@@ -120,11 +122,46 @@ def _seed_field_data(db, seed: dict) -> None:
             db.add(Household(id=household["id"], prepopulated=household["prepop"]))
 
 
+# Per-stratum monthly household income bands (₹). DEMO-CALIBRATED placeholders
+# in the shape of HCES/PLFS factsheets — replace with official stratum values for
+# production. Match is value-based so it works across any survey's field ids.
+_INCOME_STRATA = [
+    {"stratum": "Unemployed households", "match": {"occupation_is": "Unemployed"}, "p05": 0, "median": 3000, "p95": 12000},
+    {"stratum": "Student households", "match": {"occupation_is": "Student"}, "p05": 0, "median": 2000, "p95": 15000},
+    {"stratum": "Farmer / agricultural households", "match": {"occupation_is": "Farmer"}, "p05": 3000, "median": 12000, "p95": 60000},
+    {"stratum": "Salaried households", "match": {"occupation_is": "Salaried"}, "p05": 12000, "median": 32000, "p95": 120000},
+    {"stratum": "Self-employed households", "match": {"occupation_is": "Self-employed"}, "p05": 5000, "median": 20000, "p95": 150000},
+    {"stratum": "Tamil Nadu households (all)", "match": {}, "p05": 6000, "median": 22000, "p95": 80000},
+]
+
+
 def _seed_reference_data(db, seed: dict) -> None:
+    # Stratified income bands.
+    for band in _INCOME_STRATA:
+        existing = (
+            db.query(ReferenceDistribution)
+            .filter(ReferenceDistribution.key == "income", ReferenceDistribution.stratum == band["stratum"])
+            .first()
+        )
+        payload = {
+            "p05": band["p05"],
+            "median": band["median"],
+            "p95": band["p95"],
+            "params": {"match": band["match"]},
+        }
+        if existing:
+            for field, field_value in payload.items():
+                setattr(existing, field, field_value)
+        else:
+            db.add(ReferenceDistribution(key="income", stratum=band["stratum"], **payload))
+
+    # Any other (non-income) reference keys from the seed file (e.g. response time).
     for key, value in seed.get("referenceDistributions", {}).items():
+        if key == "income":
+            continue
         row = db.query(ReferenceDistribution).filter(ReferenceDistribution.key == key).first()
         payload = {
-            "stratum": "Tamil Nadu urban households" if key == "income" else "all",
+            "stratum": "all",
             "p05": value.get("p05"),
             "median": value.get("median"),
             "p95": value.get("p95"),
@@ -255,6 +292,39 @@ def _seed_assignments(db, seed: dict) -> None:
                     status="assigned",
                 )
             )
+
+
+def _seed_mock_identities(db) -> None:
+    """DEMO ONLY mock registry — fictitious records, no real Aadhaar/UIDAI."""
+    if db.query(MockIdentity).count():
+        return
+    records = [
+        {
+            "id_type": "aadhaar", "id_number": "XXXX-XXXX-4242", "last4": "4242",
+            "name": "Lakshmi R", "district": "Chennai", "village": "Tiruvanmiyur",
+            "lgd_code": "TN-603-0042", "household_size": 4, "last_occupation": "Salaried",
+        },
+        {
+            "id_type": "voter", "id_number": "ABCXXXX7788", "last4": "7788",
+            "name": "Murugan S", "district": "Madurai", "village": "Thiruparankundram",
+            "lgd_code": "TN-621-0117", "household_size": 5, "last_occupation": "Self-employed",
+        },
+        {
+            "id_type": "ration", "id_number": "TN-XXXX-9090", "last4": "9090",
+            "name": "Fatima B", "district": "Coimbatore", "village": "Peelamedu",
+            "lgd_code": "TN-641-0090", "household_size": 3, "last_occupation": "Farmer",
+        },
+    ]
+    for rec in records:
+        prefill = {
+            "name": rec["name"],
+            "district": rec["district"],
+            "village": rec["village"],
+            "lgd_code": rec["lgd_code"],
+            "household": rec["household_size"],
+            "occupation": rec["last_occupation"],
+        }
+        db.add(MockIdentity(record=prefill, **rec))
 
 
 def _hash_password(password: str) -> str:

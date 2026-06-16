@@ -5,9 +5,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { api, db, resolveAutoCoding } from '../api';
-import { Question, Survey, SurveyResponse, Paradata, BehaviorScores, ValidationStatus } from '../types';
+import { Question, Survey, SurveyResponse, Paradata, BehaviorScores, ValidationStatus, ValidationMethod } from '../types';
+import { OFFICIAL_COLLECTION_CHANNELS } from '../mockData';
 import { translations } from '../i18n';
 import { TrustBadge, ConfidenceGauge, ScoreBar, StatusChip, OfflineBanner, SyncIndicator } from './TrustComponents';
+import { MethodConfidencePanel } from './MethodConfidencePanel';
 import { MessageSquare, Mic, Wifi, WifiOff, RefreshCw, Check, ArrowRight, CornerDownLeft, Shield, AlertTriangle, AlertCircle, Radio } from 'lucide-react';
 
 interface CollectionClientProps {
@@ -67,6 +69,7 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
     trustBand: 'Green' | 'Amber' | 'Red';
     nextAction: 'ASK' | 'SIMPLIFY' | 'SKIP' | 'REORDER';
     nextActionReason: string;
+    methods?: ValidationMethod[];
   }>({
     behaviorScores: { engagement: 100, fatigue: 0, dropout: 0, quality: 100 },
     validation: {
@@ -79,7 +82,8 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
     confidenceScore: 100,
     trustBand: 'Green',
     nextAction: 'ASK',
-    nextActionReason: 'Awaiting initial question response'
+    nextActionReason: 'Awaiting initial question response',
+    methods: []
   });
 
   const chatBottomRef = useRef<HTMLDivElement>(null);
@@ -135,7 +139,7 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
     setNavBackCount(0);
     setTimeLogs({});
     
-    // Seed initial welcome prompt from AI SATARK
+    // Seed initial welcome prompt from SATARK survey assistant
     const firstQ = activeSurvey.questions[0];
     const questionText = getQuestionText(firstQ);
 
@@ -242,17 +246,18 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
       confidenceScore: evaluation.confidenceScore,
       trustBand: evaluation.trustBand,
       nextAction: evaluation.nextAction,
-      nextActionReason: evaluation.nextActionReason
+      nextActionReason: evaluation.nextActionReason,
+      methods: evaluation.methods
     });
 
     let hasError = false;
     let errorReason = '';
     const l1 = evaluation.validation.layer1_rule;
     const l5 = evaluation.validation.layer5_cross;
-    if (l1.status === 'fail' || l1.status === 'error') {
+    if (l1.status === 'fail') {
       hasError = true;
       errorReason = l1.reason;
-    } else if (l5.status === 'fail' || l5.status === 'error') {
+    } else if (l5.status === 'fail') {
       hasError = true;
       errorReason = l5.reason;
     }
@@ -278,7 +283,10 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
     }
 
     // Proceed to next question logic
-    const nextIdx = currentQuestionIdx + 1;
+    const routedIdx = evaluation.nextQuestionId
+      ? activeSurvey.questions.findIndex(q => q.id === evaluation.nextQuestionId || q.code === evaluation.nextQuestionId)
+      : -1;
+    const nextIdx = routedIdx >= 0 ? routedIdx : currentQuestionIdx + 1;
     if (nextIdx < activeSurvey.questions.length) {
       setTimeout(() => {
         const nextQ = activeSurvey.questions[nextIdx];
@@ -414,6 +422,24 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
 
       <OfflineBanner isOffline={isOffline} />
 
+      <section className="grid grid-cols-1 md:grid-cols-5 gap-3">
+        {OFFICIAL_COLLECTION_CHANNELS.map((channel) => (
+          <div key={channel.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
+              channel.status === 'Active' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'
+            }`}>
+              {channel.status}
+            </span>
+            <h3 className="font-extrabold text-xs text-slate-900 mt-2">{channel.label}</h3>
+            <p className="text-[10px] text-slate-500 mt-1">{channel.endpoint}</p>
+            <div className="mt-2 flex justify-between text-[10px] font-bold text-slate-500">
+              <span>{channel.sessionsToday} sessions</span>
+              <span>{channel.lastSync}</span>
+            </div>
+          </div>
+        ))}
+      </section>
+
       {/* STAGE 1: Lang selection */}
       {stage === 1 && (
         <section className="bg-white rounded-xl border border-slate-100 p-8 max-w-lg mx-auto text-center space-y-6">
@@ -490,16 +516,6 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
           {/* Left panel: Answering Conversational chat window (WhatsApp Style) */}
           <section className="lg:col-span-7 bg-[#E5DDD5] border border-slate-200 shadow-sm flex flex-col h-[560px] overflow-hidden relative" style={{ borderRadius: '12px' }}>
             
-            {/* Persona Modifier controls moved to an absolutely positioned overlay at the top (invisible unless hovered or just small) */}
-            <div className="absolute top-14 left-0 right-0 z-20 flex justify-center opacity-0 hover:opacity-100 transition-opacity">
-              <div className="flex bg-white/90 backdrop-blur-sm p-1 rounded-full shadow-md text-[9px] border border-slate-200 uppercase font-bold tracking-wider divide-x divide-slate-200">
-                <button onClick={() => { setPersona('Genuine'); setAnswers(prev => ({ ...prev, Q_INCOME: 24500, Q_OCCUPATION: 'Farmer' })); }} className={`px-2 ${persona === 'Genuine' ? 'text-indigo-600' : 'text-slate-400'}`}>Legit Profile</button>
-                <button onClick={() => { setPersona('Suspicious'); setAnswers(prev => ({ ...prev, Q_INCOME: 200000, Q_OCCUPATION: 'Unemployed' })); }} className={`px-2 ${persona === 'Suspicious' ? 'text-rose-600' : 'text-slate-400'}`}>Suspicious Profile</button>
-                <button onClick={() => setSpeed('Normal')} className={`px-2 ${speed === 'Normal' ? 'text-indigo-600' : 'text-slate-400'}`}>Normal Speed</button>
-                <button onClick={() => setSpeed('Too-fast')} className={`px-2 ${speed === 'Too-fast' ? 'text-rose-600' : 'text-slate-400'}`}>Fast Type</button>
-              </div>
-            </div>
-
             {/* WhatsApp Header */}
             <div className="bg-[#075E54] text-white p-3 flex items-center justify-between shrink-0 shadow-md z-10 relative">
               <div className="flex items-center gap-3">
@@ -507,7 +523,7 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
                   <span className="text-white font-bold"><MessageSquare className="w-5 h-5" /></span>
                 </div>
                 <div>
-                  <h2 className="font-bold text-sm">SATARK AI</h2>
+                  <h2 className="font-bold text-sm">SATARK Survey Assistant</h2>
                   <p className="text-[11px] text-emerald-100">NSS Survey Assistant • Online</p>
                 </div>
               </div>
@@ -522,7 +538,7 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
             </div>
 
             {/* Simulated chat container */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar" style={{ backgroundImage: 'url("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png")', backgroundRepeat: 'repeat', backgroundSize: '400px' }}>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-[#ECE5DD]">
               {chatLog.map((chat, idx) => (
                 <div 
                   key={idx} 
@@ -633,14 +649,14 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
             )}
           </section>
 
-          {/* Right panel: Live Intelligence telemetry update feed */}
+          {/* Right panel: Live validation update feed */}
           <section className="lg:col-span-5 bg-white rounded-xl border border-slate-100 p-4 space-y-4">
             <h2 className="font-bold text-xs uppercase tracking-wider text-slate-400 border-b border-slate-50 pb-2.5 flex items-center gap-1">
               <Radio className="w-4 h-4 text-emerald-500 shrink-0" />
-              {t.pipelineTitle} (Live telemetry)
+              {t.pipelineTitle} (Live checks)
             </h2>
 
-            {/* Arc Confidence Gauge */}
+            {/* Quality Gauge */}
             <div className="grid grid-cols-2 gap-4">
               <ConfidenceGauge score={pipelineState.confidenceScore} />
               
@@ -692,6 +708,8 @@ export const CollectionClient: React.FC<CollectionClientProps> = ({ lang, isColo
                       <StatusChip status={pipelineState.validation.layer3_bayesian.status} label="Strata prior" reason={pipelineState.validation.layer3_bayesian.reason} isColorBlind={isColorBlind} />
                       <StatusChip status={pipelineState.validation.layer5_cross.status} label="Cross Checks" reason={pipelineState.validation.layer5_cross.reason} isColorBlind={isColorBlind} />
                     </div>
+                    {/* Per-method confidence with proof — drives the decision */}
+                    <MethodConfidencePanel methods={pipelineState.methods} />
                   </div>
                 </div>
 

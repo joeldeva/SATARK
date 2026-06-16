@@ -150,6 +150,10 @@ class Response(Base):
     confidence_score = Column(Float)
     trust_level = Column(String(16), index=True)
     status = Column(String(24), default="captured", nullable=False, index=True)
+    # Tamper-evident hash chain (Postgres-backed, blockchain-style — no blockchain).
+    content_hash = Column(Text, nullable=False, default="")
+    prev_hash = Column(Text)
+    chain_index = Column(Integer, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -194,6 +198,7 @@ class ValidationResult(Base):
     severity = Column(String(16), nullable=False)
     reason = Column(Text, nullable=False)
     recommended_action = Column(String(40))
+    confidence = Column(Float)  # 0..100 — this method's confidence in the answer
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -265,6 +270,28 @@ class ClassificationCode(Base):
     level = Column(String(24), nullable=True)
     section = Column(String(24), nullable=True, index=True)
     parent_code = Column(String(32), nullable=True, index=True)
+
+
+class MockIdentity(Base):
+    """DEMO ONLY — a mock government identity registry for the prepopulation
+    pattern. There is NO real Aadhaar/UIDAI integration and no checksum
+    validation; any well-formed input is accepted. Seeded with a handful of
+    fictitious records purely to demonstrate field prefill from a household
+    record."""
+
+    __tablename__ = "mock_identities"
+
+    id = uuid_pk()
+    id_type = Column(String(24), nullable=False, index=True)  # aadhaar | voter | ration
+    id_number = Column(String(40), nullable=False)            # masked display form
+    last4 = Column(String(8), nullable=False, index=True)     # match key (suffix)
+    name = Column(String(120))
+    district = Column(String(120))
+    village = Column(String(120))
+    lgd_code = Column(String(40))
+    household_size = Column(Integer)
+    last_occupation = Column(String(80))
+    record = Column(JSON_DOCUMENT, default=dict, nullable=False)
 
 
 class AuditLog(Base):

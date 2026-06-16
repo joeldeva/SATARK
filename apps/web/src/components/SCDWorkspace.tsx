@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { api, db } from '../api';
+import { api, db, apiWsUrl } from '../api';
 import { SurveyResponse, NationalMetrics, Enumerator } from '../types';
+import { INITIAL_SURVEYS, OFFICIAL_COLLECTION_CHANNELS, PINCODE_LOCATIONS } from '../mockData';
 import { translations } from '../i18n';
 import { TrustBadge, ConfidenceGauge, ReasonPopover } from './TrustComponents';
 import { LeafletMap } from './LeafletMap';
@@ -98,7 +99,10 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
   const t = translations[lang];
 
   // High-level subtabs for the overall command layout
-  const [activeSubTab, setActiveSubTab] = useState<'command' | 'map' | 'analytics' | 'exports'>('command');
+  const [activeSubTab, setActiveSubTab] = useState<'command' | 'search' | 'map' | 'lifecycle' | 'analytics' | 'control' | 'exports'>('command');
+  const [semanticQuery, setSemanticQuery] = useState('Tamil Nadu PLFS Income Female Urban 2026');
+  const [selectedLifecycleSurveyId, setSelectedLifecycleSurveyId] = useState(INITIAL_SURVEYS[0].id);
+  const [selectedLifecycleStage, setSelectedLifecycleStage] = useState(INITIAL_SURVEYS[0].lifecycle?.[0]?.stage || 'Created');
 
   // Interactive Live websocket simulation states
   const [isWebSocketActive, setIsWebSocketActive] = useState(true);
@@ -181,9 +185,23 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
     };
 
     setIncidents(prev => [newAlert, ...prev].slice(0, 10)); // keep 10 max
-    setSuccessToast(`Live WebSocket Inflow: Critical Quality flag dispatched for ${randomSurveyor}!`);
+    setSuccessToast(`Live feed inflow: critical quality flag dispatched for ${randomSurveyor}.`);
     setWsTriggerCount(c => c + 1);
     setTimeout(() => setSuccessToast(''), 4500);
+  };
+
+  const getResponseLocation = (response: SurveyResponse, index: number) => {
+    const explicit = response.householdId?.match(/\d{6}/)?.[0];
+    const location = explicit
+      ? PINCODE_LOCATIONS.find((item) => item.pincode === explicit)
+      : PINCODE_LOCATIONS[index % PINCODE_LOCATIONS.length];
+    return location || PINCODE_LOCATIONS[0];
+  };
+
+  const responseMatchesPincode = (response: SurveyResponse, index: number) => {
+    if (!pinFilter.trim()) return true;
+    const location = getResponseLocation(response, index);
+    return location.pincode.includes(pinFilter.trim());
   };
 
   // 9.2 Mock geographical statistics
@@ -287,9 +305,8 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
     if (!isWebSocketActive) return;
 
     const token = localStorage.getItem('satark_token') || '';
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Access websocket via api routing proxy path
-    const wsUrl = `${protocol}//${window.location.host}/api/events/live?token=${token}`;
+    // Access websocket via api routing proxy path (or VITE_API_URL tunnel in prod)
+    const wsUrl = apiWsUrl('/events/live', token);
 
     console.log("Connecting to WebSocket:", wsUrl);
     const ws = new WebSocket(wsUrl);
@@ -330,7 +347,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
             return [newAlert, ...prev].slice(0, 10);
           });
 
-          setSuccessToast(`Live WebSocket: Critical Quality flag dispatched for ${payload.enumerator_id || 'Surveyor'}!`);
+          setSuccessToast(`Live feed: critical quality flag dispatched for ${payload.enumerator_id || 'Surveyor'}.`);
           setTimeout(() => setSuccessToast(''), 4500);
         }
       } catch (err) {
@@ -371,7 +388,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
 
   const forceWSReconnect = () => {
     setIsWebSocketActive(true);
-    setSuccessToast('Real-time WebSocket socket pipeline established successfully!');
+    setSuccessToast('Real-time event feed established successfully.');
     setTimeout(() => setSuccessToast(''), 3000);
   };
 
@@ -451,6 +468,16 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
             Live Command Feed
           </button>
           <button
+            onClick={() => setActiveSubTab('search')}
+            className={`flex-1 md:flex-initial px-4 py-2 rounded-lg text-center font-bold tracking-tight text-[10px] uppercase transition-all whitespace-nowrap ${
+              activeSubTab === 'search'
+                ? 'bg-indigo-950 text-white shadow-md'
+                : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'
+            }`}
+          >
+            National Search
+          </button>
+          <button
             onClick={() => setActiveSubTab('map')}
             className={`flex-1 md:flex-initial px-4 py-2 rounded-lg text-center font-bold tracking-tight text-[10px] uppercase transition-all whitespace-nowrap ${
               activeSubTab === 'map' 
@@ -461,6 +488,16 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
             Geographic Coverage Map
           </button>
           <button
+            onClick={() => setActiveSubTab('lifecycle')}
+            className={`flex-1 md:flex-initial px-4 py-2 rounded-lg text-center font-bold tracking-tight text-[10px] uppercase transition-all whitespace-nowrap ${
+              activeSubTab === 'lifecycle'
+                ? 'bg-indigo-950 text-white shadow-md'
+                : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'
+            }`}
+          >
+            Lifecycle
+          </button>
+          <button
             onClick={() => setActiveSubTab('analytics')}
             className={`flex-1 md:flex-initial px-4 py-2 rounded-lg text-center font-bold tracking-tight text-[10px] uppercase transition-all whitespace-nowrap ${
               activeSubTab === 'analytics' 
@@ -469,6 +506,16 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
             }`}
           >
             Trust Analytics
+          </button>
+          <button
+            onClick={() => setActiveSubTab('control')}
+            className={`flex-1 md:flex-initial px-4 py-2 rounded-lg text-center font-bold tracking-tight text-[10px] uppercase transition-all whitespace-nowrap ${
+              activeSubTab === 'control'
+                ? 'bg-indigo-950 text-white shadow-md'
+                : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'
+            }`}
+          >
+            Master Control
           </button>
           <button
             onClick={() => setActiveSubTab('exports')}
@@ -495,7 +542,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
       )}
 
       {/* ======================================================== */}
-      {/* KPI METRICS HEADER ROW (WS/REDIS COMPLIANT - ROW 1) */}
+      {/* KPI METRICS HEADER ROW */}
       {/* ======================================================== */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         
@@ -509,7 +556,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
             {metrics.responsesToday}
             <span className="text-[10px] text-emerald-600 font-bold font-sans animate-pulse">● Live</span>
           </div>
-          <p className="text-[10px] text-slate-500 mt-1 font-medium">WS telemetry streaming from 32 field regions</p>
+          <p className="text-[10px] text-slate-500 mt-1 font-medium">Live telemetry streaming from 32 field regions</p>
         </div>
 
         {/* KPI 2 */}
@@ -551,6 +598,152 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
 
       </section>
 
+      <section className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+        {[
+          ['Total Surveys', INITIAL_SURVEYS.length],
+          ['Active Surveys', INITIAL_SURVEYS.filter(s => s.status === 'Published').length],
+          ['Completed Interviews', '1,24,000'],
+          ['Coverage', '92%'],
+          ['Trust', `${metrics.avgConfidence || 96}%`],
+          ['Enumerators', leaderboard.length || 10],
+          ['Districts Covered', 38],
+          ['Quality Score', '96%']
+        ].map(([label, value]) => (
+          <div key={label} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">{label}</span>
+            <strong className="text-lg font-black text-slate-900 font-mono">{value}</strong>
+          </div>
+        ))}
+      </section>
+
+      {/* ======================================================== */}
+      {/* NATIONAL SEMANTIC SEARCH */}
+      {/* ======================================================== */}
+      {activeSubTab === 'search' && (
+        <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <h2 className="font-black text-sm uppercase text-slate-900">National Search</h2>
+              <p className="text-[11px] text-slate-500 mt-0.5">Search responses, analytics, reports, raw data, and survey metadata from one control point.</p>
+            </div>
+            <div className="relative w-full lg:w-[420px]">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={semanticQuery}
+                onChange={e => setSemanticQuery(e.target.value)}
+                placeholder="Tamil Nadu PLFS Income Female Urban 2026"
+                className="w-full p-3 pl-9 border border-slate-200 rounded-xl text-xs font-bold bg-slate-50 focus:outline-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 text-[10px] font-bold">
+            {['State', 'District', 'Pincode', 'Survey', 'Question', 'Language', 'Enumerator', 'Trust', 'Date'].map((filter) => (
+              <select key={filter} className="p-2 border border-slate-200 rounded-lg bg-slate-50 text-slate-700">
+                <option>{filter}</option>
+                <option>Tamil Nadu</option>
+                <option>PLFS 2026</option>
+              </select>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            {[
+              ['Responses', dbResponses.length || 1250, 'Matching answer records and paradata.'],
+              ['Analytics', 8, 'Coverage and quality rollups.'],
+              ['Reports', 5, 'Published and draft report packs.'],
+              ['Raw Data', '1.2L', 'Cleaned rows available for export.'],
+              ['Survey Metadata', INITIAL_SURVEYS.length, 'DDI IDs, lifecycle, and source trace.']
+            ].map(([title, value, body]) => (
+              <div key={title} className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <span className="text-[10px] font-black uppercase text-slate-400">{title}</span>
+                <div className="text-2xl font-black text-slate-900 font-mono">{value}</div>
+                <p className="text-[10px] text-slate-500 mt-1">{body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ======================================================== */}
+      {/* SURVEY LIFECYCLE MIND MAP */}
+      {/* ======================================================== */}
+      {activeSubTab === 'lifecycle' && (() => {
+        const survey = INITIAL_SURVEYS.find(s => s.id === selectedLifecycleSurveyId) || INITIAL_SURVEYS[0];
+        const stages = survey.lifecycle || [];
+        const selectedStage = stages.find(stage => stage.stage === selectedLifecycleStage) || stages[0];
+        return (
+          <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <h2 className="font-black text-sm uppercase text-slate-900">Survey Lifecycle Mind Map</h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">Every survey stage shows records, issues, trust, validation logs, and audit trail.</p>
+              </div>
+              <select value={selectedLifecycleSurveyId} onChange={e => setSelectedLifecycleSurveyId(e.target.value)} className="p-2 border border-slate-200 rounded-lg text-xs font-bold bg-slate-50">
+                {INITIAL_SURVEYS.map(s => <option key={s.id} value={s.id}>{s.shortName || s.name_en}</option>)}
+              </select>
+            </div>
+
+            <div className="overflow-x-auto">
+              <div className="flex gap-3 min-w-max">
+                {stages.map((stage) => (
+                  <button
+                    key={stage.stage}
+                    onClick={() => setSelectedLifecycleStage(stage.stage)}
+                    className={`min-w-[150px] p-3 rounded-xl border text-left transition ${
+                      selectedLifecycleStage === stage.stage ? 'bg-indigo-950 text-white border-indigo-950' : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-indigo-300'
+                    }`}
+                  >
+                    <span className="text-[9px] uppercase font-black opacity-70">{stage.status}</span>
+                    <strong className="block text-sm">{stage.stage}</strong>
+                    <span className="text-[10px] opacity-80">{stage.records}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {selectedStage && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50"><span className="text-[10px] uppercase font-black text-slate-400">Records</span><strong className="block text-slate-900">{selectedStage.records}</strong></div>
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50"><span className="text-[10px] uppercase font-black text-slate-400">Issues</span><strong className="block text-slate-900">{selectedStage.issues}</strong></div>
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50"><span className="text-[10px] uppercase font-black text-slate-400">Trust</span><strong className="block text-slate-900">{selectedStage.trust}%</strong></div>
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50"><span className="text-[10px] uppercase font-black text-slate-400">Audit Trail</span><p className="text-[11px] text-slate-600 font-semibold">{selectedStage.audit}</p></div>
+              </div>
+            )}
+          </section>
+        );
+      })()}
+
+      {/* ======================================================== */}
+      {/* MASTER CONTROL PANEL */}
+      {/* ======================================================== */}
+      {activeSubTab === 'control' && (
+        <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-5">
+          <div>
+            <h2 className="font-black text-sm uppercase text-slate-900">Unified SCD Control Center</h2>
+            <p className="text-[11px] text-slate-500 mt-0.5">Single command point for design, field, processing, channels, exports, and analytics.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {['SDRD', 'FOD', 'DPD', 'Voice Surveys', 'WhatsApp Surveys', 'Web Surveys', 'Mobile App Surveys', 'Exports', 'Analytics'].map((item) => (
+              <button key={item} className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:border-indigo-300 text-left">
+                <span className="text-[10px] font-black uppercase text-slate-400">Control</span>
+                <strong className="block text-sm text-slate-900">{item}</strong>
+                <span className="text-[10px] text-emerald-700 font-bold">Operational</span>
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            {OFFICIAL_COLLECTION_CHANNELS.map((channel) => (
+              <div key={channel.id} className="p-3 rounded-xl bg-emerald-50 border border-emerald-100">
+                <span className="text-[9px] font-black uppercase text-emerald-700">{channel.status}</span>
+                <strong className="block text-xs text-emerald-950">{channel.label}</strong>
+                <p className="text-[10px] text-emerald-800">{channel.sessionsToday} sessions today</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* ======================================================== */}
       {/* SECTION 9.1: LIVE COMMAND FEED & LEADERBOARD MAIN TAB */}
       {/* ======================================================== */}
@@ -585,12 +778,12 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
                   ) : (
                     <div className="flex items-center gap-1.5">
                       <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-250 px-2 py-0.5 rounded text-[9px] font-black uppercase">
-                        <Wifi className="w-3 h-3 text-emerald-600" /> WebSockets Connected
+                        <Wifi className="w-3 h-3 text-emerald-600" /> Live Feed Connected
                       </span>
                       <button 
                         onClick={() => triggerMockWebSocketFlag()}
                         className="p-1 text-slate-500 hover:text-indigo-800 hover:bg-slate-50 rounded-lg text-[9px] border font-bold flex items-center gap-1"
-                        title="Force mock WebSocket incident event ingestion"
+                        title="Force sample incident event ingestion"
                       >
                         <Sparkles className="w-3 h-3 text-indigo-500 animate-spin" /> Ingest Flag
                       </button>
@@ -603,7 +796,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
                     className="p-1 border border-slate-205 rounded hover:bg-slate-50 font-bold text-[9px]"
                     title="Toggle simulated client socket connection status"
                   >
-                    {isWebSocketActive ? "Kill WS" : "Boots WS"}
+                    {isWebSocketActive ? "Pause Feed" : "Start Feed"}
                   </button>
                 </div>
               </div>
@@ -656,7 +849,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
                             inc.confidence >= 80 ? 'bg-emerald-50 text-emerald-800' :
                             inc.confidence >= 50 ? 'bg-amber-50 text-amber-800' : 'bg-rose-50 text-rose-800 animate-pulse'
                           }`}>
-                            Confidence: {inc.confidence}%
+                            Quality: {inc.confidence}%
                           </span>
                         </ReasonPopover>
                       </div>
@@ -755,7 +948,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
                 
                 {/* Dynamically recalculated aggregate stats */}
                 <span className="bg-indigo-950 text-white font-mono text-[11px] font-black px-3 py-1.5 rounded-lg shadow-sm">
-                  At ≥{minConfSlider}% Confidence: {includedSimulated} included · {excludedSimulated} excluded
+                  At &gt;= {minConfSlider}% Quality: {includedSimulated} included / {excludedSimulated} excluded
                 </span>
               </div>
 
@@ -795,15 +988,18 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
                     center={[13.0827, 80.2707]} 
                     zoom={11} 
                     height="180px"
-                    markers={filteredResponses.slice(0, 15).map((gps, idx) => ({
+                    markers={filteredResponses.slice(0, 15).map((gps, idx) => {
+                      const location = getResponseLocation(gps, idx);
+                      return {
                       id: gps.id || `home-${idx}`,
-                      lat: gps.paradata.gpsLat || (13.0827 + (idx * 0.005 - 0.035)),
-                      lng: gps.paradata.gpsLng || (80.2707 + (idx * 0.006 - 0.042)),
-                      title: `Household ${gps.id}`,
-                      subtitle: `NIC Sector Code: ${gps.nicCode} | Occupation: ${gps.occupation}`,
+                      lat: gps.paradata.gpsLat || location.lat,
+                      lng: gps.paradata.gpsLng || location.lng,
+                      title: `Household ${gps.householdId || gps.id}`,
+                      subtitle: `PIN ${location.pincode}, ${location.locality} | Occupation: ${gps.occupation || 'Not coded'}`,
                       badge: gps.trustBand === 'Red' ? '⚠ Quality Warning' : '✓ Verified Secure',
                       badgeColor: gps.trustBand === 'Red' ? '#E24B4A' : '#1D9E75'
-                    }))}
+                    };
+                    })}
                     onMarkerClick={(id) => {
                       const found = dbResponses.find(r => r.id === id);
                       if (found) setDrilledResponse(found);
@@ -927,7 +1123,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
               {zoomLevel === 'country' && (
                 <div className="w-full text-center space-y-3">
                   <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
-                    Interactive National Choropleth Map (Avg Confidence Rating)
+                    Interactive National Coverage Map (Avg Quality Rating)
                   </div>
                   
                   {/* Styled geographical polygon bounds represent states of India */}
@@ -993,7 +1189,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
                   </div>
 
                   <p className="text-[10px] text-slate-500 max-w-sm mx-auto font-medium">
-                    * Interactive Vector graphic displaying 10 baseline survey territories. Click any state boundary to drill-down into district grids.
+                    * Interactive territory map displaying 10 baseline survey territories. Click any state boundary to drill down into district grids.
                   </p>
                 </div>
               )}
@@ -1055,16 +1251,19 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
                       zoom={13} 
                       height="320px"
                       markers={dbResponses
-                        .filter(item => !pinFilter || item.id.includes(pinFilter))
-                        .map((item, idx) => ({
+                        .filter((item, idx) => responseMatchesPincode(item, idx))
+                        .map((item, idx) => {
+                          const location = getResponseLocation(item, idx);
+                          return {
                           id: item.id,
-                          lat: item.paradata.gpsLat || (13.0827 + (idx * 0.007 - 0.035)),
-                          lng: item.paradata.gpsLng || (80.2707 + (idx * 0.008 - 0.042)),
+                          lat: item.paradata.gpsLat || location.lat,
+                          lng: item.paradata.gpsLng || location.lng,
                           title: `Respondent #${item.id}`,
-                          subtitle: `Trust Score: ${item.confidenceScore}% | Occupation: ${item.occupation}`,
+                          subtitle: `PIN ${location.pincode}, ${location.locality} | Trust ${item.confidenceScore}%`,
                           badge: item.trustBand === 'Red' ? '⚠ Quality Flag' : '✓ Verified Secure',
                           badgeColor: item.trustBand === 'Red' ? '#E24B4A' : '#1D9E75'
-                        }))}
+                        };
+                        })}
                       onMarkerClick={(id) => {
                         const found = dbResponses.find(r => r.id === id);
                         if (found) setDrilledResponse(found);
@@ -1366,7 +1565,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
 
                   {/* Slider limits */}
                   <div className="space-y-1">
-                    <label className="text-slate-500 font-bold uppercase tracking-wider text-[9px] block">Confidence Threshold Cutoff: ≥{exportThreshold}%</label>
+                    <label className="text-slate-500 font-bold uppercase tracking-wider text-[9px] block">Quality Threshold Cutoff: &gt;= {exportThreshold}%</label>
                     <input 
                       type="range"
                       min="40"
@@ -1406,6 +1605,17 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
                       </>
                     )}
                   </button>
+                  <div className="grid grid-cols-5 gap-2 mt-3 text-[10px] font-black">
+                    {['CSV', 'XLSX', 'PDF', 'DDI XML', 'Paradata'].map(format => (
+                      <button
+                        key={format}
+                        onClick={() => setSuccessToast(`${format} export package queued for ${selectedSurvey}.`)}
+                        className="py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:border-indigo-300"
+                      >
+                        {format}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1579,7 +1789,7 @@ export const SCDWorkspace: React.FC<SCDWorkspaceProps> = ({ lang, isColorBlind }
                     <strong className="text-emerald-800 font-black">PASS ✔</strong>
                   </div>
                   <div className="p-2 border rounded-lg bg-rose-50/45 border-rose-200 flex justify-between">
-                    <span>Bayesian Strata Outliers (Layer 3)</span>
+                    <span>Survey Consistency Reviews (Layer 3)</span>
                     <strong className="text-rose-800 font-black">FAIL ✘</strong>
                   </div>
                   <div className="p-2 border rounded-lg bg-emerald-50/30 flex justify-between">

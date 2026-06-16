@@ -94,7 +94,7 @@ def answer_session(db, session_id: str, payload: dict[str, Any]) -> dict[str, An
         speed_mode=_speed_mode(elapsed_seconds, payload),
         elapsed_seconds=elapsed_seconds,
         rules=rules,
-        reference=_reference(db),
+        reference=_reference(db, answers),
         enumerator=_enumerator_context(db, session.enumerator_id),
         adaptive_logic=_adaptive_logic(db, session.survey_id),
     )
@@ -358,17 +358,10 @@ def _adaptive_logic(db, survey_id: str) -> list[dict[str, Any]]:
     return [{"trigger": row.trigger, "action": row.action, "target": row.target} for row in rows]
 
 
-def _reference(db) -> dict[str, Any]:
-    return {
-        row.key: {
-            "stratum": row.stratum,
-            "p05": row.p05,
-            "median": row.median,
-            "p95": row.p95,
-            "params": row.params or {},
-        }
-        for row in db.query(ReferenceDistribution).all()
-    }
+def _reference(db, answers: dict[str, Any] | None = None) -> dict[str, Any]:
+    from services.reference import resolve_reference
+
+    return resolve_reference(db.query(ReferenceDistribution).all(), answers)
 
 
 def _enumerator_context(db, enumerator_id: str | None) -> dict[str, Any] | None:

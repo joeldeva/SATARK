@@ -94,10 +94,20 @@ def update_survey(db: Session, survey_id: str, payload: Dict[str, Any]) -> Surve
     return row
 
 
-def publish_survey(db: Session, survey_id: str, user_id: str) -> Dict[str, Any]:
+def publish_survey(db: Session, survey_id: str, user_id: str, graph: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     row = db.query(Survey).filter(Survey.survey_id == survey_id).first()
     if not row:
         raise HTTPException(status_code=404, detail="Survey not found")
+
+    # Publishing edits to an already-published survey is a VERSION BUMP, not an
+    # in-place edit: apply the supplied graph here and snapshot it as a new
+    # SurveyVersion (published surveys themselves stay immutable per version).
+    if graph:
+        row.question_graph = graph
+        row.survey_data = graph
+        if isinstance(graph, dict):
+            row.total_questions = len(graph.get("nodes") or [])
+
     graph = row.question_graph or row.survey_data
     if not graph:
         raise HTTPException(status_code=409, detail="Cannot publish empty survey")

@@ -29,11 +29,16 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3001"
     )
 
-    LLM_PROVIDER: str = "ollama"
+    LLM_PROVIDER: str = "ollama"  # ollama | openrouter | none
     LLM_MODEL: str = "gemma2:2b"
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
     LLM_REQUIRED: bool = True
     LLM_TIMEOUT_SECONDS: int = 45
+
+    # OpenRouter (online, OpenAI-compatible) — used when LLM_PROVIDER=openrouter.
+    OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
     CHROMA_URL: str = "http://127.0.0.1:8002"
     CHROMA_DIR: str = str(PROJECT_ROOT / "data" / "chroma")
 

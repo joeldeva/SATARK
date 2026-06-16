@@ -159,7 +159,7 @@ export const ConfidenceGauge: React.FC<ConfidenceGaugeProps> = ({ score }) => {
           <span className="text-[10px] uppercase font-semibold text-slate-500">Quality</span>
         </div>
       </div>
-      <div className={`mt-2 font-semibold text-sm ${textColor}`} aria-label={`Confidence evaluation is ${label}`}>
+      <div className={`mt-2 font-semibold text-sm ${textColor}`} aria-label={`Quality evaluation is ${label}`}>
         {label}
       </div>
     </div>

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from api.routes import router, set_db_dependency, set_generator
 from api.rag_routes import router as rag_router, set_db_dependency as set_rag_db_dependency
 from api.event_routes import router as event_router
+from api.channel_routes import router as channel_router, set_db_dependency as set_channel_db_dependency
 from api.whatsapp import router as whatsapp_router, set_db_dependency as set_whatsapp_db_dependency
 from app.config import settings
 from app.database import SessionLocal, get_db, init_db
@@ -21,7 +22,7 @@ from services.prompt_parser import PromptParser
 from services.rag_engine import RAGEngine
 from services.rule_engine import RuleEngine
 from services.survey_generator import SurveyGenerator
-from services.llm_planner import LocalLLMPlanner
+from services.llm_planner import LocalLLMPlanner, OpenRouterPlanner
 from utils.knowledge_loader import KnowledgeBaseLoader
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -46,7 +47,8 @@ async def lifespan(app: FastAPI):
     rag_engine = RAGEngine(kb).build_index()
     rule_engine = RuleEngine(kb)
     llm_planner = None
-    if settings.LLM_PROVIDER.lower() == "ollama":
+    provider = settings.LLM_PROVIDER.lower()
+    if provider == "ollama":
         llm_planner = LocalLLMPlanner(
             model=settings.LLM_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
@@ -54,7 +56,18 @@ async def lifespan(app: FastAPI):
             required=settings.LLM_REQUIRED,
         )
         logger.info("Local LLM planner enabled: %s via %s", settings.LLM_MODEL, settings.OLLAMA_BASE_URL)
-    elif settings.LLM_PROVIDER.lower() != "none":
+    elif provider == "openrouter":
+        if not settings.OPENROUTER_API_KEY:
+            raise RuntimeError("LLM_PROVIDER=openrouter requires OPENROUTER_API_KEY")
+        llm_planner = OpenRouterPlanner(
+            model=settings.OPENROUTER_MODEL,
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url=settings.OPENROUTER_BASE_URL,
+            timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
+            required=settings.LLM_REQUIRED,
+        )
+        logger.info("OpenRouter LLM planner enabled: %s via %s", settings.OPENROUTER_MODEL, settings.OPENROUTER_BASE_URL)
+    elif provider != "none":
         raise RuntimeError(f"Unsupported LLM_PROVIDER: {settings.LLM_PROVIDER}")
     generator = SurveyGenerator(prompt_parser, rag_engine, rule_engine, llm_planner=llm_planner)
 
@@ -62,6 +75,7 @@ async def lifespan(app: FastAPI):
     set_db_dependency(get_db)
     set_rag_db_dependency(get_db)
     set_whatsapp_db_dependency(get_db)
+    set_channel_db_dependency(get_db)
     logger.info("SATARK ready")
     yield
 
@@ -87,6 +101,7 @@ app.include_router(router, prefix="/api")
 app.include_router(router, prefix="/api/v1")
 app.include_router(rag_router, prefix="/api")
 app.include_router(event_router, prefix="/api")
+app.include_router(channel_router, prefix="/api/v1")
 app.include_router(whatsapp_router, prefix="/api")
 
 

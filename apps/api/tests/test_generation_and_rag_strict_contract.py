@@ -81,7 +81,10 @@ def test_generation_endpoints_log_only_until_explicit_create():
         assert after["generation_logs"] == before["generation_logs"] + 1
 
 
-def test_rag_query_requires_chroma(monkeypatch):
+def test_rag_query_503_when_vector_store_unavailable(monkeypatch):
+    """If NO vector backend is available at all (neither Chroma nor the local
+    fallback), the query lane fails closed with 503 — it never fabricates an
+    answer."""
     client = _client()
     headers = _headers(client, "admin", "admin123")
 
@@ -95,7 +98,45 @@ def test_rag_query_requires_chroma(monkeypatch):
     )
 
     assert response.status_code == 503
-    assert "Chroma is not available" in response.json()["detail"]
+    assert "Vector store unavailable" in response.json()["detail"]
+
+
+def test_sdrd_can_ingest_kb_docs():
+    """KB ingestion is part of the SDRD design workflow (survey:write), not admin-only."""
+    client = _client()
+    headers = _headers(client, "sdrd", "design123")
+    res = client.post(
+        "/api/rag/ingest",
+        headers=headers,
+        files={"file": ("kb.txt", b"PLFS labour module reference questions for survey generation.", "text/plain")},
+        data={"bucket": "survey_generation"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["chunk_count"] >= 1
+
+
+def test_rag_query_works_without_chroma_via_local_store():
+    """Default path: no Chroma installed -> local persisted vector store answers."""
+    client = _client()
+    headers = _headers(client, "admin", "admin123")
+
+    ingest = client.post(
+        "/api/rag/ingest",
+        headers=headers,
+        files={"file": ("note.txt", b"COICOP code list for household consumption expenditure.", "text/plain")},
+        data={"bucket": "survey_generation"},
+    )
+    assert ingest.status_code == 200, ingest.text
+
+    response = client.post(
+        "/api/rag/query",
+        headers=headers,
+        json={"bucket": "survey_generation", "question": "household consumption expenditure code list"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_verdict"] is False
+    assert body["sources"], "local vector store should return the ingested source"
 
 
 def _counts() -> dict[str, int]:

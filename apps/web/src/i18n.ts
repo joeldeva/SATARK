@@ -50,7 +50,7 @@ export const translations = {
     properties: "Question Properties",
     autoCodeDropdown: "Auto-code Classification",
     validationRulesLabel: "Validation Rules (Edit specs)",
-    draftGeneratorsTitle: "AI Survey Builder Assist (Gemma-3B)",
+    draftGeneratorsTitle: "Source-Traced Survey Builder Assist",
     draftPromptPlaceholder: "Describe the survey you need, e.g., 'A household consumption survey with assets check and state codes'",
     draftBtn: "Generate Draft Structure",
 

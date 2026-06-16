@@ -1,20 +1,32 @@
-"""Bucket-aware Chroma persistence for the assist lane."""
+"""Bucket-aware vector persistence for the assist lane.
+
+Primary backend is Chroma.  When Chroma is not installed (offline demo box, CI)
+we fall back to a small persisted in-process vector store (cosine over a JSONL
+file per bucket under ``CHROMA_DIR``) so ingest/query keep working AND persist
+across restarts.  Either way embeddings come from the shared assist embedding
+provider, never from the verdict lane.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
-import os
-import hashlib
 import math
-import re
+import os
+import threading
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from app.config import settings
+from app.intelligence.assist.rag.embeddings import backend as embed_backend
+from app.intelligence.assist.rag.embeddings import embed, embed_one
 
 logger = logging.getLogger(__name__)
 
-_VALID_BUCKETS = {"survey_generation", "validation", "general"}
+_VALID_BUCKETS = {"survey_generation", "validation", "general", "question_bank"}
+_LOCK = threading.Lock()
+_LOCAL_COLLECTIONS: dict[str, "_LocalCollection"] = {}
 
 
 def _bucket_name(bucket: str) -> str:
@@ -22,26 +34,13 @@ def _bucket_name(bucket: str) -> str:
     return bucket if bucket in _VALID_BUCKETS else "general"
 
 
-def _embed_text(text: str, dimensions: int = 64) -> list[float]:
-    """Create a deterministic local embedding without downloading a model."""
-
-    vector = [0.0] * dimensions
-    for token in re.findall(r"\b[\w-]{2,}\b", (text or "").lower()):
-        digest = hashlib.sha256(token.encode("utf-8")).digest()
-        index = int.from_bytes(digest[:4], "big") % dimensions
-        sign = 1.0 if digest[4] % 2 == 0 else -1.0
-        vector[index] += sign
-    norm = math.sqrt(sum(value * value for value in vector))
-    if not norm:
-        return vector
-    return [round(value / norm, 6) for value in vector]
-
+# ───────────────────────── Chroma backend ────────────────────────────────
 
 def chroma_client():
     try:
         import chromadb
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Chroma package unavailable: %s", exc)
+        logger.debug("Chroma package unavailable, using local vector store: %s", exc)
         return None
     configured_url = (settings.CHROMA_URL or "").strip()
     try:
@@ -53,21 +52,90 @@ def chroma_client():
         os.makedirs(settings.CHROMA_DIR, exist_ok=True)
         return chromadb.PersistentClient(path=settings.CHROMA_DIR)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Chroma client init failed: %s", exc)
+        logger.warning("Chroma client init failed, using local vector store: %s", exc)
         return None
+
+
+# ───────────────────────── local fallback backend ────────────────────────
+
+class _LocalCollection:
+    """Persisted cosine vector store: one JSONL file per bucket."""
+
+    def __init__(self, name: str):
+        self.name = name
+        os.makedirs(settings.CHROMA_DIR, exist_ok=True)
+        self.path = Path(settings.CHROMA_DIR) / f"{name}.jsonl"
+        self._rows: dict[str, dict] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            for line in self.path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                self._rows[row["id"]] = row
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Local vector store load failed for %s: %s", self.name, exc)
+
+    def _persist(self) -> None:
+        with self.path.open("w", encoding="utf-8") as handle:
+            for row in self._rows.values():
+                handle.write(json.dumps(row, default=str) + "\n")
+
+    def upsert(self, documents, embeddings, metadatas, ids):
+        for doc, vec, meta, _id in zip(documents, embeddings, metadatas, ids):
+            self._rows[_id] = {"id": _id, "text": doc, "embedding": list(vec), "metadata": meta or {}}
+        self._persist()
+
+    def query(self, query_embeddings, n_results=5):
+        q = query_embeddings[0]
+        scored = []
+        for row in self._rows.values():
+            scored.append((_cosine(q, row["embedding"]), row))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        top = scored[: max(1, int(n_results))]
+        return {
+            "documents": [[row["text"] for _, row in top]],
+            "metadatas": [[row["metadata"] for _, row in top]],
+            "ids": [[row["id"] for _, row in top]],
+            # store cosine similarity as a distance (1 - sim) to match Chroma shape
+            "distances": [[round(1.0 - score, 6) for score, _ in top]],
+        }
+
+    def count(self) -> int:
+        return len(self._rows)
+
+
+def _cosine(a: List[float], b: List[float]) -> float:
+    if not a or not b:
+        return 0.0
+    n = min(len(a), len(b))
+    dot = sum(a[i] * b[i] for i in range(n))
+    na = math.sqrt(sum(x * x for x in a[:n]))
+    nb = math.sqrt(sum(x * x for x in b[:n]))
+    if not na or not nb:
+        return 0.0
+    return dot / (na * nb)
 
 
 def get_collection(bucket: str):
-    client = chroma_client()
-    if not client:
-        return None
     name = f"satark_{_bucket_name(bucket)}"
-    try:
-        return client.get_or_create_collection(name=name)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("get_or_create_collection(%s) failed: %s", name, exc)
-        return None
+    client = chroma_client()
+    if client is not None:
+        try:
+            return client.get_or_create_collection(name=name)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("get_or_create_collection(%s) failed: %s", name, exc)
+    with _LOCK:
+        if name not in _LOCAL_COLLECTIONS:
+            _LOCAL_COLLECTIONS[name] = _LocalCollection(name)
+        return _LOCAL_COLLECTIONS[name]
 
+
+# ───────────────────────── public API ────────────────────────────────────
 
 def upsert_chunks(
     bucket: str,
@@ -76,26 +144,24 @@ def upsert_chunks(
     ids: Optional[List[str]] = None,
     source_id: Optional[str] = None,
 ) -> int:
-    """Upsert chunks to Chroma. Raises when Chroma is unavailable."""
-
     if not chunks:
         return 0
     bucket_key = _bucket_name(bucket)
     metadatas = metadatas or [{} for _ in chunks]
     ids = ids or [f"{source_id or 'doc'}-{i}" for i in range(len(chunks))]
-
     collection = get_collection(bucket_key)
     if collection is None:
-        raise RuntimeError("Chroma is not available; cannot ingest knowledge sources")
+        raise RuntimeError("Vector store unavailable; cannot ingest knowledge sources")
     try:
         collection.upsert(
             documents=chunks,
-            embeddings=[_embed_text(chunk) for chunk in chunks],
+            embeddings=embed(chunks),
             metadatas=metadatas,
             ids=ids,
         )
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"Chroma upsert failed for bucket '{bucket_key}': {exc}") from exc
+        raise RuntimeError(f"Vector upsert failed for bucket '{bucket_key}': {exc}") from exc
+    logger.info("ingest bucket=%s chunks=%d backend=%s", bucket_key, len(chunks), embed_backend())
     return len(chunks)
 
 
@@ -105,11 +171,11 @@ def query(bucket: str, text: str, k: int = 5) -> List[Dict[str, Any]]:
     bucket_key = _bucket_name(bucket)
     collection = get_collection(bucket_key)
     if collection is None:
-        raise RuntimeError("Chroma is not available; cannot query knowledge sources")
+        raise RuntimeError("Vector store unavailable; cannot query knowledge sources")
     try:
-        res = collection.query(query_embeddings=[_embed_text(text)], n_results=max(1, int(k)))
+        res = collection.query(query_embeddings=[embed_one(text)], n_results=max(1, int(k)))
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"Chroma query failed for bucket '{bucket_key}': {exc}") from exc
+        raise RuntimeError(f"Vector query failed for bucket '{bucket_key}': {exc}") from exc
 
     docs = (res.get("documents") or [[]])[0]
     metas = (res.get("metadatas") or [[]])[0] or [{}] * len(docs)
@@ -129,21 +195,19 @@ def query(bucket: str, text: str, k: int = 5) -> List[Dict[str, Any]]:
 
 def status() -> dict:
     client = chroma_client()
-    enabled = client is not None
+    mode = "chroma" if client is not None else "local-vector-store"
     buckets = {}
     for bucket in sorted(_VALID_BUCKETS):
         bucket_key = _bucket_name(bucket)
-        if enabled:
-            try:
-                coll = client.get_or_create_collection(name=f"satark_{bucket_key}")
-                buckets[bucket_key] = {"chroma_count": coll.count()}
-            except Exception:  # noqa: BLE001
-                buckets[bucket_key] = {"chroma_count": None}
-        else:
-            buckets[bucket_key] = {"chroma_count": None}
+        try:
+            coll = get_collection(bucket_key)
+            buckets[bucket_key] = {"count": coll.count() if coll else None}
+        except Exception:  # noqa: BLE001
+            buckets[bucket_key] = {"count": None}
     return {
-        "enabled": enabled,
-        "mode": "http" if (settings.CHROMA_URL or "").strip() else "persistent",
+        "enabled": True,
+        "mode": mode,
+        "embedding_backend": embed_backend(),
         "url": settings.CHROMA_URL if (settings.CHROMA_URL or "").strip() else None,
         "path": settings.CHROMA_DIR,
         "buckets": buckets,
