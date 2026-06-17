@@ -1700,19 +1700,19 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                         <FileUp className="w-4 h-4 text-indigo-700" />
                         Ingest QBS / DDI / Legacy Document
                       </h4>
-                      <p className="text-[11px] text-slate-400 font-medium">Teach the generator generator by indexing past regional manuals, guidelines, or PLFS question PDFs.</p>
+                      <p className="text-[11px] text-slate-400 font-medium">Index QBS, DDI, questionnaires, schedules, codebooks, and legacy survey files as reviewed source material.</p>
                       
                       <div className="border-2 border-dashed border-slate-200 p-3 rounded-lg text-center hover:bg-slate-50 transition-colors relative cursor-pointer">
                         <input 
                           type="file" 
                           id="pdf-ref-upload"
-                          accept=".pdf,.doc,.docx"
+                          accept=".pdf,.doc,.docx,.csv,.xml,.txt,.md"
                           onChange={handlePdfUpload}
                           className="absolute inset-0 opacity-0 cursor-pointer"
                         />
                         <Upload className="w-5 h-5 mx-auto text-slate-400 mb-1" />
                         <span className="text-[10px] font-bold text-slate-500 block">Drag & drop or browse training files</span>
-                        <span className="text-[9px] text-slate-400">PDF and Word files index into the local source library</span>
+                        <span className="text-[9px] text-slate-400">PDF, Word, CSV, DDI XML, text, and codebook files</span>
                       </div>
 
                       {isUploadingPdf && (

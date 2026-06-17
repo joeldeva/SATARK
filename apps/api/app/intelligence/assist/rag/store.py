@@ -15,6 +15,7 @@ import json
 import logging
 import math
 import os
+import re
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -140,6 +141,24 @@ class _PostgresCollection:
         finally:
             db.close()
 
+    def all_documents(self):
+        from app.database import SessionLocal
+        from models.platform import RagChunk
+
+        db = SessionLocal()
+        try:
+            return [
+                {
+                    "id": row.chunk_id,
+                    "text": row.text,
+                    "metadata": row.metadata_json or {},
+                    "embedding": row.embedding or [],
+                }
+                for row in db.query(RagChunk).filter(RagChunk.bucket == self.bucket).all()
+            ]
+        finally:
+            db.close()
+
     def count(self) -> int:
         from app.database import SessionLocal
         from models.platform import RagChunk
@@ -203,6 +222,17 @@ class _LocalCollection:
             "ids": [[row["id"] for _, row in top]],
             "distances": [[round(1.0 - score, 6) for score, _ in top]],
         }
+
+    def all_documents(self):
+        return [
+            {
+                "id": row["id"],
+                "text": row["text"],
+                "metadata": row.get("metadata") or {},
+                "embedding": row.get("embedding") or [],
+            }
+            for row in self._rows.values()
+        ]
 
     def count(self) -> int:
         return len(self._rows)
@@ -289,7 +319,9 @@ def query(bucket: str, text: str, k: int = 5) -> List[Dict[str, Any]]:
     if collection is None:
         raise RuntimeError("Vector store unavailable; cannot query knowledge sources")
     try:
-        res = collection.query(query_embeddings=[embed_one(text)], n_results=max(1, int(k)))
+        target = max(1, int(k))
+        query_embedding = embed_one(text)
+        res = collection.query(query_embeddings=[query_embedding], n_results=max(target * 8, 50))
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"Vector query failed for bucket '{bucket_key}': {exc}") from exc
 
@@ -297,16 +329,149 @@ def query(bucket: str, text: str, k: int = 5) -> List[Dict[str, Any]]:
     metas = (res.get("metadatas") or [[]])[0] or [{}] * len(docs)
     ids = (res.get("ids") or [[]])[0] or [f"r{i}" for i in range(len(docs))]
     distances = (res.get("distances") or [[]])[0] or [0.0] * len(docs)
-    out = []
+    vector_hits: dict[str, Dict[str, Any]] = {}
     for i, doc in enumerate(docs):
         score = 1.0 - float(distances[i] or 0.0)
-        out.append({
-            "id": ids[i],
+        vector_hits[str(ids[i])] = {
+            "id": str(ids[i]),
             "text": doc,
             "metadata": metas[i] if i < len(metas) else {},
-            "score": round(score, 4),
+            "vector_score": max(0.0, min(1.0, score)),
+        }
+
+    lexical_candidates = _all_collection_documents(collection)
+    lexical_hits = _bm25_rank(text, lexical_candidates, limit=max(target * 8, 50))
+    merged: dict[str, Dict[str, Any]] = {}
+    for hit in vector_hits.values():
+        merged[hit["id"]] = dict(hit)
+    for hit in lexical_hits:
+        row = merged.setdefault(
+            hit["id"],
+            {
+                "id": hit["id"],
+                "text": hit["text"],
+                "metadata": hit.get("metadata") or {},
+                "vector_score": 0.0,
+            },
+        )
+        row["lexical_score"] = hit["lexical_score"]
+
+    reranked = []
+    for hit in merged.values():
+        meta = hit.get("metadata") or {}
+        vector_score = float(hit.get("vector_score") or 0.0)
+        lexical_score = float(hit.get("lexical_score") or 0.0)
+        metadata_score = _metadata_score(text, meta)
+        rerank_score = _rerank_score(text, hit.get("text") or "", meta)
+        final = (0.45 * vector_score) + (0.30 * lexical_score) + (0.15 * rerank_score) + (0.10 * metadata_score)
+        reranked.append({
+            "id": hit["id"],
+            "text": hit.get("text") or "",
+            "metadata": meta,
+            "score": round(max(0.0, min(1.0, final)), 4),
+            "vector_score": round(vector_score, 4),
+            "lexical_score": round(lexical_score, 4),
+            "rerank_score": round(rerank_score, 4),
+            "retrieval_method": "hybrid_vector_bm25_rerank",
         })
-    return out
+    reranked.sort(key=lambda item: item.get("score") or 0.0, reverse=True)
+    return reranked[:target]
+
+
+def _all_collection_documents(collection) -> List[Dict[str, Any]]:
+    if hasattr(collection, "all_documents"):
+        return collection.all_documents()
+    if hasattr(collection, "get"):
+        try:
+            data = collection.get(include=["documents", "metadatas", "embeddings"])
+            ids = data.get("ids") or []
+            docs = data.get("documents") or []
+            metas = data.get("metadatas") or [{} for _ in docs]
+            embeds = data.get("embeddings") or [[] for _ in docs]
+            return [
+                {
+                    "id": str(ids[i] if i < len(ids) else f"doc-{i}"),
+                    "text": docs[i],
+                    "metadata": metas[i] if i < len(metas) else {},
+                    "embedding": embeds[i] if i < len(embeds) else [],
+                }
+                for i in range(len(docs))
+            ]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("collection full scan unavailable for hybrid lexical search: %s", exc)
+    return []
+
+
+def _tokens(value: str) -> List[str]:
+    return re.findall(r"\b[\w]{2,}\b", (value or "").lower())
+
+
+def _bm25_rank(query_text: str, rows: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+    if not rows:
+        return []
+    query_tokens = _tokens(query_text)
+    if not query_tokens:
+        return []
+    docs_tokens = [_tokens(row.get("text") or "") for row in rows]
+    avg_len = sum(len(tokens) for tokens in docs_tokens) / max(len(docs_tokens), 1)
+    doc_freq: dict[str, int] = {}
+    for tokens in docs_tokens:
+        for token in set(tokens):
+            doc_freq[token] = doc_freq.get(token, 0) + 1
+    n_docs = len(rows)
+    k1 = 1.4
+    b = 0.72
+    raw = []
+    for row, tokens in zip(rows, docs_tokens):
+        if not tokens:
+            continue
+        tf: dict[str, int] = {}
+        for token in tokens:
+            tf[token] = tf.get(token, 0) + 1
+        score = 0.0
+        for token in query_tokens:
+            if token not in tf:
+                continue
+            idf = math.log(1 + ((n_docs - doc_freq.get(token, 0) + 0.5) / (doc_freq.get(token, 0) + 0.5)))
+            denom = tf[token] + k1 * (1 - b + b * (len(tokens) / max(avg_len, 1)))
+            score += idf * ((tf[token] * (k1 + 1)) / max(denom, 0.0001))
+        if score > 0:
+            raw.append((score, row))
+    if not raw:
+        return []
+    max_score = max(score for score, _ in raw) or 1.0
+    ranked = []
+    for score, row in raw:
+        ranked.append({
+            "id": str(row.get("id")),
+            "text": row.get("text") or "",
+            "metadata": row.get("metadata") or {},
+            "lexical_score": round(score / max_score, 4),
+        })
+    ranked.sort(key=lambda item: item["lexical_score"], reverse=True)
+    return ranked[:limit]
+
+
+def _metadata_score(query_text: str, metadata: Dict[str, Any]) -> float:
+    if not metadata:
+        return 0.0
+    query = " ".join(_tokens(query_text))
+    fields = " ".join(str(metadata.get(key) or "") for key in ("source_document", "section", "question_id", "language", "filename"))
+    if not query or not fields:
+        return 0.0
+    q = set(_tokens(query))
+    m = set(_tokens(fields))
+    return len(q & m) / max(len(q), 1)
+
+
+def _rerank_score(query_text: str, text: str, metadata: Dict[str, Any]) -> float:
+    q = set(_tokens(query_text))
+    haystack = set(_tokens(" ".join([text, json.dumps(metadata, default=str)])))
+    if not q or not haystack:
+        return 0.0
+    overlap = len(q & haystack) / max(len(q), 1)
+    phrase_bonus = 0.15 if query_text.lower() in text.lower() else 0.0
+    return min(1.0, overlap + phrase_bonus)
 
 
 def status() -> dict:
@@ -333,4 +498,5 @@ def status() -> dict:
         "buckets": buckets,
         "needs_review": True,
         "is_verdict": False,
+        "retrieval_method": "hybrid_vector_bm25_rerank",
     }

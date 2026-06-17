@@ -40,7 +40,8 @@ def _rerank(question: str, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     reranked = []
     for hit in hits:
         h = dict(hit)
-        h["score"] = round((h.get("score") or 0.0) * 0.6 + boost(h) * 0.4, 4)
+        h["score"] = round((h.get("score") or 0.0) * 0.75 + boost(h) * 0.25, 4)
+        h["reranker"] = "local_offline_reranker"
         reranked.append(h)
     reranked.sort(key=lambda x: x.get("score") or 0.0, reverse=True)
     return reranked
@@ -49,13 +50,18 @@ def _rerank(question: str, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 def answer(question: str, bucket: str = "general", k: int = 5) -> Dict[str, Any]:
     """Return a grounded assist answer for ``question`` within ``bucket``."""
     bucket_key = _normalize_bucket(bucket)
-    raw_hits = store_query(bucket_key, question or "", k=max(1, int(k)))
-    hits = _rerank(question or "", raw_hits)
+    requested_k = max(1, min(int(k), 10))
+    raw_hits = store_query(bucket_key, question or "", k=max(requested_k, 10))
+    hits = _rerank(question or "", raw_hits)[:requested_k]
 
     sources = [
         {
             "id": hit.get("id"),
             "score": hit.get("score"),
+            "vector_score": hit.get("vector_score"),
+            "lexical_score": hit.get("lexical_score"),
+            "rerank_score": hit.get("rerank_score"),
+            "retrieval_method": hit.get("retrieval_method") or "hybrid_vector_bm25_rerank",
             "snippet": _snippet(hit.get("text") or ""),
             "metadata": hit.get("metadata") or {},
         }
@@ -78,6 +84,22 @@ def answer(question: str, bucket: str = "general", k: int = 5) -> Dict[str, Any]
         "answer": summary or "No grounded answer available for this bucket yet — try ingesting reference material first.",
         "sources": sources,
         "confidence": confidence,
+        "retrieval": {
+            "method": "hybrid_search_with_reranking",
+            "retrieved_sources": len(sources),
+            "top_k": requested_k,
+            "source_documents": sorted({
+                str((source.get("metadata") or {}).get("source_document") or (source.get("metadata") or {}).get("filename") or "unknown")
+                for source in sources
+            }),
+        },
+        "officer_metrics": {
+            "retrievedSources": len(sources),
+            "questionReuse": _reuse_percent(sources),
+            "generatedQuestions": None,
+            "validationRulesAdded": None,
+            "languagesGenerated": None,
+        },
         "store": store_status(),
         "needs_review": True,
         "is_verdict": False,
@@ -113,6 +135,13 @@ def classify_code(text: str, code_type: Optional[str] = None, k: int = 5) -> Dic
 def _snippet(text: str, max_chars: int = 240) -> str:
     text = (text or "").strip().replace("\n", " ")
     return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
+
+
+def _reuse_percent(sources: List[Dict[str, Any]]) -> int:
+    if not sources:
+        return 0
+    strong = [source for source in sources if float(source.get("score") or 0) >= 0.55]
+    return round((len(strong) / len(sources)) * 100)
 
 
 def _summarize_with_llm(question: str, joined: str) -> str | None:

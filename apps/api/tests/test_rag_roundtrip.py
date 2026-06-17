@@ -45,6 +45,38 @@ def test_rag_ingest_then_query_returns_new_document(fresh_store):
     assert "fisheries.txt" in filenames
 
 
+def test_question_aware_chunks_keep_options_and_metadata(fresh_store):
+    _store, _qb = fresh_store
+    from app.intelligence.assist.rag.ingest import chunk_question_blocks, ingest_bytes
+    from app.intelligence.assist.rag.service import answer
+
+    doc = (
+        "PLFS 2026\n"
+        "Section: Employment\n"
+        "Language: English\n\n"
+        "Q1. Did you work for at least one hour during the last 7 days?\n"
+        "Options: Yes, No\n"
+        "Validation: Mandatory\n"
+        "Skip: No -> job search module\n\n"
+        "Q2. What was your monthly income from work?\n"
+        "Validation: Range 0-300000\n"
+    )
+    chunks = chunk_question_blocks(doc)
+    assert len(chunks) == 2
+    assert chunks[0]["metadata"]["chunk_type"] == "question_block"
+    assert chunks[0]["metadata"]["section"] == "Employment"
+    assert chunks[0]["metadata"]["options"] == "Yes, No"
+    assert "Skip" in chunks[0]["text"]
+
+    ingest_bytes(bucket="survey_generation", filename="plfs_qb.txt", data=doc.encode("utf-8"))
+    result = answer(question="work last 7 days employment question", bucket="survey_generation", k=3)
+    top_meta = result["sources"][0]["metadata"]
+    assert result["retrieval"]["method"] == "hybrid_search_with_reranking"
+    assert result["officer_metrics"]["retrievedSources"] >= 1
+    assert top_meta["section"] == "Employment"
+    assert top_meta["chunk_type"] == "question_block"
+
+
 def test_question_bank_semantic_search_ranks_paraphrase_top3(fresh_store):
     _store, qb = fresh_store
     added = qb.add({"text": "What is your monthly household expenditure?", "tags": ["expenditure", "household"]})

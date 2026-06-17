@@ -1303,6 +1303,18 @@ def _generated_to_designer_survey(generated: dict[str, Any]) -> dict[str, Any]:
                     validation.get("max", 999999),
                 ]
             }
+        trace = question.get("source_trace") or {}
+        if trace or question.get("source"):
+            node["sourceTrace"] = {
+                "source_document": trace.get("source_document") or question.get("source") or "SATARK question bank",
+                "section": trace.get("section") or question.get("subdomain") or "Survey module",
+                "question_id": trace.get("question_id") or question.get("id") or question.get("display_id"),
+                "language": trace.get("language") or "English",
+                "confidence": trace.get("confidence") or question.get("relevance_score") or 80,
+                "retrieved_context": trace.get("retrieved_context") or question.get("text") or "",
+                "generated_reason": trace.get("generated_reason") or "Included because it matched the survey goal and validation requirements.",
+            }
+            node["provenance"] = node["sourceTrace"]
         nodes.append(node)
 
     return {

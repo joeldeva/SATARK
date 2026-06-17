@@ -21,7 +21,9 @@ class RAGEngine:
         return self
 
     def search(self, query: str, domain: Optional[str] = None, tags: Optional[List[str]] = None, top_k: int = 20) -> List[Dict]:
-        return self._keyword_search(query, domain, tags or [], top_k)
+        bundled = self._keyword_search(query, domain, tags or [], top_k)
+        uploaded = self._uploaded_question_search(query, domain, tags or [], top_k)
+        return self._dedupe([*uploaded, *bundled])[:top_k]
 
     def _keyword_search(self, query: str, domain: Optional[str], tags: List[str], top_k: int) -> List[Dict]:
         query_words = self._tokens(query)
@@ -77,3 +79,103 @@ class RAGEngine:
 
     def _tokens(self, value: str) -> set[str]:
         return set(re.findall(r"\b[a-z0-9_]{3,}\b", value.lower()))
+
+    def _uploaded_question_search(self, query: str, domain: Optional[str], tags: List[str], top_k: int) -> List[Dict]:
+        """Use indexed SDRD question banks as generation candidates.
+
+        This is an assist-lane dependency. If the vector store is unavailable,
+        generation still works from bundled standards and deterministic rules.
+        """
+        try:
+            from app.intelligence.assist.rag.store import query as store_query
+
+            hits = store_query("survey_generation", " ".join([query or "", domain or "", " ".join(tags)]), k=max(top_k, 10))
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Uploaded source retrieval unavailable for generation: %s", exc)
+            return []
+
+        questions: List[Dict] = []
+        for idx, hit in enumerate(hits):
+            text = self._question_from_chunk(hit.get("text") or "")
+            if not text:
+                continue
+            meta = hit.get("metadata") or {}
+            qid = meta.get("question_id") or f"rag_{idx + 1}"
+            options = self._options_from_meta(meta)
+            question_type = "single_choice" if options else self._infer_type(text, meta)
+            questions.append({
+                "id": str(qid).lower().replace(" ", "_").replace(".", "_"),
+                "domain": domain or "general",
+                "subdomain": str(meta.get("section") or "uploaded_question_bank").lower().replace(" ", "_"),
+                "text": text,
+                "type": question_type,
+                "category": "core",
+                "tags": list({*(tags or []), "uploaded_source", "rag"}),
+                "options": options,
+                "validation": self._validation_from_meta(meta),
+                "required": True,
+                "routing": meta.get("skip_logic"),
+                "standard_code": meta.get("code_type"),
+                "source": meta.get("source_document") or meta.get("filename") or "uploaded_question_bank",
+                "source_trace": {
+                    "source_document": meta.get("source_document") or meta.get("filename") or "Uploaded Question Bank",
+                    "section": meta.get("section") or "Question bank",
+                    "question_id": meta.get("question_id") or qid,
+                    "language": meta.get("language") or "English",
+                    "confidence": round(float(hit.get("score") or 0.0) * 100),
+                    "retrieved_context": (hit.get("text") or "")[:500],
+                    "generated_reason": "Matched the survey goal through hybrid retrieval and reranking.",
+                },
+                "relevance_score": round(float(hit.get("score") or 0.0) * 100),
+            })
+        return questions
+
+    def _question_from_chunk(self, chunk: str) -> str:
+        lines = [line.strip() for line in (chunk or "").splitlines() if line.strip()]
+        if not lines:
+            return ""
+        for line in lines:
+            cleaned = re.sub(r"^\s*(?:q(?:uestion)?[ _.-]*\d+[a-z]?|[a-z]{2,8}[_-]\d{1,4}|[0-9]{1,3}[.)])\s*[:.-]?\s*", "", line, flags=re.I)
+            if "?" in cleaned or len(cleaned.split()) >= 5:
+                return cleaned.strip()
+        return lines[0]
+
+    def _options_from_meta(self, meta: Dict) -> List[Dict]:
+        raw = meta.get("options")
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            values = [str(item).strip() for item in raw if str(item).strip()]
+        else:
+            values = [part.strip(" -;") for part in re.split(r"[,/|;]", str(raw)) if part.strip(" -;")]
+        return [{"value": value.lower().replace(" ", "_"), "label": value} for value in values[:12]]
+
+    def _validation_from_meta(self, meta: Dict) -> Dict:
+        raw = str(meta.get("validation") or "")
+        if not raw:
+            return {}
+        numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", raw)]
+        if len(numbers) >= 2:
+            return {"type": "range", "min": numbers[0], "max": numbers[1]}
+        if "mandatory" in raw.lower() or "required" in raw.lower():
+            return {"type": "required"}
+        return {"note": raw}
+
+    def _infer_type(self, text: str, meta: Dict) -> str:
+        haystack = " ".join([text, str(meta.get("validation") or "")]).lower()
+        if any(word in haystack for word in ["how many", "how much", "amount", "income", "age", "number"]):
+            return "number"
+        if any(word in haystack for word in ["date", "when"]):
+            return "date"
+        return "text"
+
+    def _dedupe(self, questions: List[Dict]) -> List[Dict]:
+        seen: set[str] = set()
+        out: List[Dict] = []
+        for question in questions:
+            key = re.sub(r"\s+", " ", self._question_text(question).lower()).strip()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            out.append(question)
+        return out
