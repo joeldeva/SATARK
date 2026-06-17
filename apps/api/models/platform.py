@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Table, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Table, Text, UniqueConstraint
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.sql import func
 from sqlalchemy.types import CHAR, TypeDecorator
@@ -270,6 +270,20 @@ class ClassificationCode(Base):
     level = Column(String(24), nullable=True)
     section = Column(String(24), nullable=True, index=True)
     parent_code = Column(String(32), nullable=True, index=True)
+
+
+class RagChunk(Base):
+    __tablename__ = "rag_chunks"
+    __table_args__ = (UniqueConstraint("bucket", "chunk_id", name="uq_rag_chunks_bucket_chunk_id"),)
+
+    id = uuid_pk()
+    bucket = Column(String(64), nullable=False, index=True)
+    chunk_id = Column(String(255), nullable=False)
+    text = Column(Text, nullable=False)
+    embedding = Column(JSON_DOCUMENT, default=list, nullable=False)
+    metadata_json = Column(JSON_DOCUMENT, default=dict, nullable=False)
+    source_id = Column(String(255), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class MockIdentity(Base):

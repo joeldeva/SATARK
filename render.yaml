@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: satark-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: LLM_PROVIDER
+        value: openrouter
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: nex-agi/nex-n2-pro:free
+      - key: LLM_REQUIRED
+        value: "false"
+      - key: VECTOR_STORE
+        value: postgres
+      - key: CHROMA_URL
+        value: ""
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: https://sat-full-one.vercel.app,http://localhost:3001,http://127.0.0.1:3001
+      - key: WHATSAPP_PROVIDER
+        value: meta
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_API_VERSION
+        value: v20.0

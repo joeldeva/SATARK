@@ -1,10 +1,12 @@
 """Bucket-aware vector persistence for the assist lane.
 
-Primary backend is Chroma.  When Chroma is not installed (offline demo box, CI)
-we fall back to a small persisted in-process vector store (cosine over a JSONL
-file per bucket under ``CHROMA_DIR``) so ingest/query keep working AND persist
-across restarts.  Either way embeddings come from the shared assist embedding
-provider, never from the verdict lane.
+Backends:
+- postgres: cloud-friendly storage in the main database.
+- chroma: local/server Chroma when explicitly configured.
+- local: persisted JSONL fallback for SQLite/offline development.
+
+Embeddings always come from the assist embedding provider. The verdict lane does
+not import this module.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ logger = logging.getLogger(__name__)
 _VALID_BUCKETS = {"survey_generation", "validation", "general", "question_bank"}
 _LOCK = threading.Lock()
 _LOCAL_COLLECTIONS: dict[str, "_LocalCollection"] = {}
+_POSTGRES_COLLECTIONS: dict[str, "_PostgresCollection"] = {}
 
 
 def _bucket_name(bucket: str) -> str:
@@ -34,9 +37,22 @@ def _bucket_name(bucket: str) -> str:
     return bucket if bucket in _VALID_BUCKETS else "general"
 
 
-# ───────────────────────── Chroma backend ────────────────────────────────
+def _selected_backend() -> str:
+    configured = (settings.VECTOR_STORE or "auto").strip().lower()
+    if configured in {"postgres", "chroma", "local"}:
+        return configured
+    if (settings.CHROMA_URL or "").strip():
+        return "chroma"
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return "postgres"
+    return "local"
+
+
+# Chroma backend
 
 def chroma_client():
+    if _selected_backend() != "chroma":
+        return None
     try:
         import chromadb
     except Exception as exc:  # noqa: BLE001
@@ -56,7 +72,86 @@ def chroma_client():
         return None
 
 
-# ───────────────────────── local fallback backend ────────────────────────
+# Postgres backend
+
+class _PostgresCollection:
+    """Small cosine-search vector store backed by ``rag_chunks``.
+
+    This avoids a separate vector database on free hosting. It is enough for the
+    demo-sized source bank and keeps provenance metadata in the same database as
+    surveys, responses, validation rows, and audit logs.
+    """
+
+    def __init__(self, bucket: str):
+        self.bucket = bucket
+
+    def upsert(self, documents, embeddings, metadatas, ids):
+        from app.database import SessionLocal
+        from models.platform import RagChunk
+
+        db = SessionLocal()
+        try:
+            for doc, vec, meta, chunk_id in zip(documents, embeddings, metadatas, ids):
+                metadata = dict(meta or {})
+                row = (
+                    db.query(RagChunk)
+                    .filter(RagChunk.bucket == self.bucket, RagChunk.chunk_id == str(chunk_id))
+                    .one_or_none()
+                )
+                source_id = (
+                    metadata.get("source_id")
+                    or metadata.get("source_document")
+                    or metadata.get("source")
+                    or metadata.get("document")
+                )
+                if row is None:
+                    row = RagChunk(bucket=self.bucket, chunk_id=str(chunk_id))
+                    db.add(row)
+                row.text = str(doc)
+                row.embedding = [float(item) for item in (vec or [])]
+                row.metadata_json = metadata
+                row.source_id = str(source_id) if source_id else None
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    def query(self, query_embeddings, n_results=5):
+        from app.database import SessionLocal
+        from models.platform import RagChunk
+
+        q = query_embeddings[0] if query_embeddings else []
+        db = SessionLocal()
+        try:
+            rows = db.query(RagChunk).filter(RagChunk.bucket == self.bucket).all()
+            scored = []
+            for row in rows:
+                scored.append((_cosine(q, row.embedding or []), row))
+            scored.sort(key=lambda item: item[0], reverse=True)
+            top = scored[: max(1, int(n_results))]
+            return {
+                "documents": [[row.text for _, row in top]],
+                "metadatas": [[row.metadata_json or {} for _, row in top]],
+                "ids": [[row.chunk_id for _, row in top]],
+                "distances": [[round(1.0 - score, 6) for score, _ in top]],
+            }
+        finally:
+            db.close()
+
+    def count(self) -> int:
+        from app.database import SessionLocal
+        from models.platform import RagChunk
+
+        db = SessionLocal()
+        try:
+            return db.query(RagChunk).filter(RagChunk.bucket == self.bucket).count()
+        finally:
+            db.close()
+
+
+# Local fallback backend
 
 class _LocalCollection:
     """Persisted cosine vector store: one JSONL file per bucket."""
@@ -86,12 +181,17 @@ class _LocalCollection:
                 handle.write(json.dumps(row, default=str) + "\n")
 
     def upsert(self, documents, embeddings, metadatas, ids):
-        for doc, vec, meta, _id in zip(documents, embeddings, metadatas, ids):
-            self._rows[_id] = {"id": _id, "text": doc, "embedding": list(vec), "metadata": meta or {}}
+        for doc, vec, meta, chunk_id in zip(documents, embeddings, metadatas, ids):
+            self._rows[str(chunk_id)] = {
+                "id": str(chunk_id),
+                "text": doc,
+                "embedding": [float(item) for item in (vec or [])],
+                "metadata": meta or {},
+            }
         self._persist()
 
     def query(self, query_embeddings, n_results=5):
-        q = query_embeddings[0]
+        q = query_embeddings[0] if query_embeddings else []
         scored = []
         for row in self._rows.values():
             scored.append((_cosine(q, row["embedding"]), row))
@@ -101,7 +201,6 @@ class _LocalCollection:
             "documents": [[row["text"] for _, row in top]],
             "metadatas": [[row["metadata"] for _, row in top]],
             "ids": [[row["id"] for _, row in top]],
-            # store cosine similarity as a distance (1 - sim) to match Chroma shape
             "distances": [[round(1.0 - score, 6) for score, _ in top]],
         }
 
@@ -113,29 +212,40 @@ def _cosine(a: List[float], b: List[float]) -> float:
     if not a or not b:
         return 0.0
     n = min(len(a), len(b))
-    dot = sum(a[i] * b[i] for i in range(n))
-    na = math.sqrt(sum(x * x for x in a[:n]))
-    nb = math.sqrt(sum(x * x for x in b[:n]))
+    dot = sum(float(a[i]) * float(b[i]) for i in range(n))
+    na = math.sqrt(sum(float(x) * float(x) for x in a[:n]))
+    nb = math.sqrt(sum(float(x) * float(x) for x in b[:n]))
     if not na or not nb:
         return 0.0
     return dot / (na * nb)
 
 
 def get_collection(bucket: str):
-    name = f"satark_{_bucket_name(bucket)}"
-    client = chroma_client()
-    if client is not None:
-        try:
-            return client.get_or_create_collection(name=name)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("get_or_create_collection(%s) failed: %s", name, exc)
+    bucket_key = _bucket_name(bucket)
+    backend = _selected_backend()
+    if backend == "postgres":
+        with _LOCK:
+            if bucket_key not in _POSTGRES_COLLECTIONS:
+                _POSTGRES_COLLECTIONS[bucket_key] = _PostgresCollection(bucket_key)
+            return _POSTGRES_COLLECTIONS[bucket_key]
+
+    if backend == "chroma":
+        name = f"satark_{bucket_key}"
+        client = chroma_client()
+        if client is not None:
+            try:
+                return client.get_or_create_collection(name=name)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("get_or_create_collection(%s) failed: %s", name, exc)
+
+    name = f"satark_{bucket_key}"
     with _LOCK:
         if name not in _LOCAL_COLLECTIONS:
             _LOCAL_COLLECTIONS[name] = _LocalCollection(name)
         return _LOCAL_COLLECTIONS[name]
 
 
-# ───────────────────────── public API ────────────────────────────────────
+# Public API
 
 def upsert_chunks(
     bucket: str,
@@ -161,7 +271,13 @@ def upsert_chunks(
         )
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"Vector upsert failed for bucket '{bucket_key}': {exc}") from exc
-    logger.info("ingest bucket=%s chunks=%d backend=%s", bucket_key, len(chunks), embed_backend())
+    logger.info(
+        "ingest bucket=%s chunks=%d vector_store=%s embedding=%s",
+        bucket_key,
+        len(chunks),
+        _selected_backend(),
+        embed_backend(),
+    )
     return len(chunks)
 
 
@@ -194,22 +310,26 @@ def query(bucket: str, text: str, k: int = 5) -> List[Dict[str, Any]]:
 
 
 def status() -> dict:
-    client = chroma_client()
-    mode = "chroma" if client is not None else "local-vector-store"
+    requested = _selected_backend()
+    client = chroma_client() if requested == "chroma" else None
+    mode = "chroma" if client is not None else requested
+    if requested == "chroma" and client is None:
+        mode = "local-vector-store"
     buckets = {}
     for bucket in sorted(_VALID_BUCKETS):
         bucket_key = _bucket_name(bucket)
         try:
             coll = get_collection(bucket_key)
             buckets[bucket_key] = {"count": coll.count() if coll else None}
-        except Exception:  # noqa: BLE001
-            buckets[bucket_key] = {"count": None}
+        except Exception as exc:  # noqa: BLE001
+            buckets[bucket_key] = {"count": None, "error": str(exc)}
     return {
         "enabled": True,
         "mode": mode,
+        "requested_backend": requested,
         "embedding_backend": embed_backend(),
-        "url": settings.CHROMA_URL if (settings.CHROMA_URL or "").strip() else None,
-        "path": settings.CHROMA_DIR,
+        "url": settings.CHROMA_URL if (settings.CHROMA_URL or "").strip() and requested == "chroma" else None,
+        "path": settings.CHROMA_DIR if mode == "local-vector-store" else None,
         "buckets": buckets,
         "needs_review": True,
         "is_verdict": False,

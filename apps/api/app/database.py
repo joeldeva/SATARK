@@ -76,6 +76,23 @@ def _repair_sqlite_dev_schema() -> None:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_classification_codes_section ON classification_codes (section)"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_classification_codes_parent_code ON classification_codes (parent_code)"))
 
+        if "rag_chunks" not in tables:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS rag_chunks (
+                    id CHAR(36) PRIMARY KEY,
+                    bucket VARCHAR(64) NOT NULL,
+                    chunk_id VARCHAR(255) NOT NULL,
+                    text TEXT NOT NULL,
+                    embedding JSON NOT NULL,
+                    metadata_json JSON NOT NULL,
+                    source_id VARCHAR(255),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT uq_rag_chunks_bucket_chunk_id UNIQUE (bucket, chunk_id)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_rag_chunks_bucket ON rag_chunks (bucket)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_rag_chunks_source_id ON rag_chunks (source_id)"))
+
 
 def _columns(inspector, table_name: str) -> set[str]:
     return {column["name"] for column in inspector.get_columns(table_name)}

@@ -58,17 +58,22 @@ async def lifespan(app: FastAPI):
         logger.info("Local LLM planner enabled: %s via %s", settings.LLM_MODEL, settings.OLLAMA_BASE_URL)
     elif provider == "openrouter":
         if not settings.OPENROUTER_API_KEY:
-            raise RuntimeError("LLM_PROVIDER=openrouter requires OPENROUTER_API_KEY")
-        llm_planner = OpenRouterPlanner(
-            model=settings.OPENROUTER_MODEL,
-            api_key=settings.OPENROUTER_API_KEY,
-            base_url=settings.OPENROUTER_BASE_URL,
-            timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
-            required=settings.LLM_REQUIRED,
-        )
-        logger.info("OpenRouter LLM planner enabled: %s via %s", settings.OPENROUTER_MODEL, settings.OPENROUTER_BASE_URL)
+            if settings.LLM_REQUIRED:
+                raise RuntimeError("LLM_PROVIDER=openrouter requires OPENROUTER_API_KEY")
+            logger.warning("OpenRouter key missing; survey assist will use deterministic fallback")
+        else:
+            llm_planner = OpenRouterPlanner(
+                model=settings.OPENROUTER_MODEL,
+                api_key=settings.OPENROUTER_API_KEY,
+                base_url=settings.OPENROUTER_BASE_URL,
+                timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
+                required=settings.LLM_REQUIRED,
+            )
+            logger.info("OpenRouter LLM planner enabled: %s via %s", settings.OPENROUTER_MODEL, settings.OPENROUTER_BASE_URL)
     elif provider != "none":
-        raise RuntimeError(f"Unsupported LLM_PROVIDER: {settings.LLM_PROVIDER}")
+        if settings.LLM_REQUIRED:
+            raise RuntimeError(f"Unsupported LLM_PROVIDER: {settings.LLM_PROVIDER}")
+        logger.warning("Unsupported LLM_PROVIDER=%s; survey assist will use deterministic fallback", settings.LLM_PROVIDER)
     generator = SurveyGenerator(prompt_parser, rag_engine, rule_engine, llm_planner=llm_planner)
 
     set_generator(generator)

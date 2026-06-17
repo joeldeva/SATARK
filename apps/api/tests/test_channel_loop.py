@@ -208,6 +208,49 @@ def test_real_whatsapp_first_contact_auto_starts_session():
     assert second.json()["payload"]["node_id"] == "name"
 
 
+def test_meta_whatsapp_webhook_sends_reply_through_provider(monkeypatch):
+    import api.channel_routes as channel_routes
+
+    client = _client()
+    sent = {}
+
+    async def fake_send(to, reply):
+        sent["to"] = to
+        sent["reply"] = reply
+        return {"sent": True, "provider": "meta", "status_code": 200}
+
+    monkeypatch.setattr(settings, "WHATSAPP_PROVIDER", "meta")
+    monkeypatch.setattr(channel_routes, "_send_meta_whatsapp", fake_send)
+
+    response = client.post(
+        "/api/v1/channels/whatsapp/webhook",
+        json={
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "messages": [
+                                    {
+                                        "from": "919900001111",
+                                        "text": {"body": "hi"},
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["provider_delivery"]["sent"] is True
+    assert sent["to"] == "919900001111"
+    assert "consent" in response.json()["payload"]["type"]
+    assert sent["reply"]
+
+
 def test_whatsapp_default_prefers_full_generated_companion_over_short_shell():
     client = _client()
     base = f"DDI-IND-MOSPI-TEST{uuid.uuid4().hex[:6].upper()}"

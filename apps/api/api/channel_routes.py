@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from app import channel_sessions, sandbox_feed
 from app.auth.rbac import require_scope, user_from_token
@@ -21,6 +23,7 @@ from services import channels_service
 from services.events import RedisPublishError
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _get_db = None
 
@@ -81,12 +84,15 @@ async def whatsapp_verify(
 ):
     # Meta verification handshake.
     if mode == "subscribe" and challenge:
+        if settings.WHATSAPP_VERIFY_TOKEN and token != settings.WHATSAPP_VERIFY_TOKEN:
+            raise HTTPException(status_code=403, detail="Invalid WhatsApp verify token")
         return int(challenge) if challenge.isdigit() else challenge
     return {"ok": True}
 
 
 @router.post("/channels/whatsapp/webhook")
 async def whatsapp_webhook(request: Dict[str, Any]):
+    is_meta = _is_meta_payload(request)
     respondent_ref, text = _normalize_whatsapp(request)
     survey_id = request.get("survey_id") or request.get("surveyId")
     reset = bool(request.get("reset")) or str(text or "").strip().lower() in {"restart", "reset", "start over", "/restart"}
@@ -99,8 +105,17 @@ async def whatsapp_webhook(request: Dict[str, Any]):
     finally:
         db.close()
     reply = (outbound.get("prompt_text") or {}).get("en", "")
+    provider_delivery = None
+    if is_meta and (settings.WHATSAPP_PROVIDER or "").strip().lower() == "meta":
+        provider_delivery = await _send_meta_whatsapp(respondent_ref, reply)
     # `reply` and `reply_text` both returned for bridge compatibility (Baileys/Meta).
-    return {"reply": reply, "reply_text": reply, "to": respondent_ref, "payload": outbound}
+    return {
+        "reply": reply,
+        "reply_text": reply,
+        "to": respondent_ref,
+        "payload": outbound,
+        "provider_delivery": provider_delivery,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +220,10 @@ async def sandbox_live(websocket: WebSocket):
 # helpers
 # ---------------------------------------------------------------------------
 
+def _is_meta_payload(request: Dict[str, Any]) -> bool:
+    return isinstance(request.get("entry"), list)
+
+
 def _normalize_whatsapp(request: Dict[str, Any]) -> tuple[str, str]:
     # Baileys-style: {sender, message:{text}} ; Meta-style entry/changes nesting.
     if request.get("sender") or request.get("from"):
@@ -221,6 +240,47 @@ def _normalize_whatsapp(request: Dict[str, Any]) -> tuple[str, str]:
         return str(ref), str(text)
     except Exception:  # noqa: BLE001
         return str(request.get("respondent_ref") or "unknown"), str(request.get("raw_answer") or "")
+
+
+async def _send_meta_whatsapp(to: str, reply: str) -> dict[str, Any]:
+    if not reply.strip() or not to or to == "unknown":
+        return {"sent": False, "reason": "No recipient or reply text"}
+    missing = [
+        name
+        for name, value in {
+            "WHATSAPP_ACCESS_TOKEN": settings.WHATSAPP_ACCESS_TOKEN,
+            "WHATSAPP_PHONE_NUMBER_ID": settings.WHATSAPP_PHONE_NUMBER_ID,
+        }.items()
+        if not value
+    ]
+    if missing:
+        return {"sent": False, "reason": f"Missing {', '.join(missing)}"}
+
+    url = (
+        f"https://graph.facebook.com/{settings.WHATSAPP_API_VERSION}/"
+        f"{settings.WHATSAPP_PHONE_NUMBER_ID}/messages"
+    )
+    body = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"preview_url": False, "body": reply},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+            response.raise_for_status()
+        return {"sent": True, "provider": "meta", "status_code": response.status_code}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Meta WhatsApp delivery failed: %s", exc)
+        return {"sent": False, "provider": "meta", "error": str(exc)}
 
 
 def _session_backend() -> str:

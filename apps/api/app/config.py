@@ -38,11 +38,17 @@ class Settings(BaseSettings):
     # OpenRouter (online, OpenAI-compatible) — used when LLM_PROVIDER=openrouter.
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
+    OPENROUTER_MODEL: str = "nex-agi/nex-n2-pro:free"
+    VECTOR_STORE: str = "auto"  # auto | chroma | postgres | local
     CHROMA_URL: str = "http://127.0.0.1:8002"
     CHROMA_DIR: str = str(PROJECT_ROOT / "data" / "chroma")
 
     REDIS_URL: str = "redis://localhost:6379/0"
+    WHATSAPP_PROVIDER: str = "baileys"  # baileys | meta
+    WHATSAPP_VERIFY_TOKEN: Optional[str] = None
+    WHATSAPP_ACCESS_TOKEN: Optional[str] = None
+    WHATSAPP_PHONE_NUMBER_ID: Optional[str] = None
+    WHATSAPP_API_VERSION: str = "v20.0"
     SUPERPLANE_WEBHOOK_URL: Optional[str] = None
     SUPERPLANE_TOKEN: Optional[str] = None
     TRUST_WEIGHT_VALIDATION: float = 0.40
