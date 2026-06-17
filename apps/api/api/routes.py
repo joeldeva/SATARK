@@ -1278,16 +1278,21 @@ def _log_generation_only(survey: Dict[str, Any], prompt: str, user_id: str, elap
 
 def _generated_to_designer_survey(generated: dict[str, Any]) -> dict[str, Any]:
     nodes = []
+    languages = generated.get("languages") or ["en", "hi", "ta"]
     for question in generated.get("questions", []):
         validation = question.get("validation") or {}
+        question_text = question.get("text") or "Question"
+        q_i18n = {
+            "en": question_text,
+            "hi": question.get("translations", {}).get("hi") or question_text,
+            "ta": question.get("translations", {}).get("ta") or question_text,
+        }
+        for language in languages:
+            q_i18n.setdefault(str(language), question.get("translations", {}).get(str(language)) or question_text)
         node: dict[str, Any] = {
             "id": question.get("id") or question.get("display_id"),
             "type": _designer_question_type(question.get("type")),
-            "q": {
-                "en": question.get("text") or "Question",
-                "hi": question.get("text") or "Question",
-                "ta": question.get("text") or "Question",
-            },
+            "q": q_i18n,
         }
         if question.get("standard_code"):
             node["codeType"] = question["standard_code"]
@@ -1326,7 +1331,7 @@ def _generated_to_designer_survey(generated: dict[str, Any]) -> dict[str, Any]:
         },
         "nodes": nodes,
         "branches": {},
-        "metadata": generated.get("metadata", {}),
+        "metadata": {**(generated.get("metadata", {}) or {}), "languages": languages},
     }
 
 

@@ -95,7 +95,7 @@ Return JSON with exactly these keys:
   "topics": ["short lowercase topic keywords"],
   "num_questions": number or null,
   "special_requirements": ["income", "validation", "routing", "multilingual", "satisfaction" when relevant],
-  "language": ["en", "hi", "ta", "bn", "te", "mr" as needed],
+  "language": ["en", "hi", "ta", "te", "kn", "ml", "bn", "gu", "pa", "as", "or", "mr", "ur", "kok", "sa", "mni", "brx", "doi", "mai", "ne", "sat", "ks" as needed],
   "confidence": number from 0 to 100,
   "reason": "one plain-language reason for the extracted intent",
   "draft_questions": [
@@ -137,7 +137,10 @@ Rules:
     def _normalize(self, payload: dict[str, Any], prompt: str) -> ParsedIntent:
         baseline = self.deterministic_parser.parse(prompt)
         domains = {"labour", "health", "agriculture", "education", "household", "enterprise", "social"}
-        languages = {"en", "hi", "ta", "bn", "te", "mr"}
+        languages = {
+            "en", "hi", "ta", "te", "kn", "ml", "bn", "gu", "pa", "as", "or", "mr", "ur",
+            "kok", "sa", "mni", "brx", "doi", "mai", "ne", "sat", "ks",
+        }
         domain = str(payload.get("domain") or baseline.domain).lower()
         if domain not in domains:
             domain = baseline.domain

@@ -3,8 +3,9 @@ import { INITIAL_QUESTION_BANK, CLASSIFICATION_CODES, INITIAL_SURVEYS, INITIAL_E
 
 // In dev, '' + '/api' is proxied by Vite to the backend. In the Firebase-hosted
 // build, set VITE_API_URL to the tunneled backend origin (e.g. the cloudflared URL).
-const API_ORIGIN = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
-const API_BASE = `${API_ORIGIN}/api`;
+const RAW_API_URL = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
+const API_ORIGIN = RAW_API_URL === '/api' ? '' : RAW_API_URL.replace(/\/api$/, '');
+const API_BASE = RAW_API_URL === '/api' ? '/api' : `${API_ORIGIN}/api`;
 let productionMockFallback = false;
 
 export function isUsingProductionMockData(): boolean {
@@ -118,7 +119,8 @@ function fallbackAssignments(surveyId?: string, enumeratorId?: string, status?: 
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const endpoint = path.startsWith('/api/') ? path.slice(4) : path;
+  const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -203,17 +205,25 @@ function mapDbQuestionToFe(q: any): Question {
     });
   }
 
+  const translations = {
+    ...(q.q || {}),
+    ...(q.translations || {}),
+    ...(q.metadata?.translations || {})
+  };
+
   return {
     id: q.id,
     block: q.block || 'Block 1: Survey Data',
     code: q.code || q.id,
     text_en: q.q?.en || '',
-    text_hi: q.q?.hi || '',
-    text_ta: q.q?.ta || '',
+    text_hi: q.q?.hi || q.q?.en || '',
+    text_ta: q.q?.ta || q.q?.en || '',
+    translations,
     type: q.type === 'choice' ? 'single' : q.type,
     options: q.options || [],
     options_hi: q.options_hi || q.options || [],
     options_ta: q.options_ta || q.options || [],
+    options_i18n: q.options_i18n || q.metadata?.options_i18n || {},
     conditionalShow: q.conditionalShow || '',
     autoCodeAs: q.codeType || 'None',
     validationRules: validationRules,
@@ -257,8 +267,11 @@ function mapFeQuestionToDb(q: Question): any {
     q: {
       en: q.text_en,
       hi: q.text_hi,
-      ta: q.text_ta
+      ta: q.text_ta,
+      ...(q.translations || {})
     },
+    translations: q.translations,
+    options_i18n: q.options_i18n,
     rules: {
       ...(rangeRule ? { range: rangeRule } : {}),
       ...(crossFieldRule ? { crossField: crossFieldRule } : {})
@@ -266,7 +279,9 @@ function mapFeQuestionToDb(q: Question): any {
     metadata: {
       sourceTrace: q.sourceTrace,
       generated_reason: q.generatedReason || q.sourceTrace?.generated_reason,
-      confidence: q.retrievalConfidence || q.sourceTrace?.confidence
+      confidence: q.retrievalConfidence || q.sourceTrace?.confidence,
+      translations: q.translations,
+      options_i18n: q.options_i18n
     }
   };
 }
@@ -297,7 +312,9 @@ function mapDbSurveyToFe(s: any): Survey {
     status: s.status === 'published' ? 'Published' : 'Draft',
     questions,
     lifecycle: s.metadata?.lifecycle,
-    channels: s.metadata?.channels
+    channels: s.metadata?.channels,
+    languages: s.metadata?.languages || s.languages,
+    primaryLanguage: s.metadata?.primary_language || s.primaryLanguage
   };
 }
 
@@ -326,7 +343,9 @@ function mapFeSurveyToDb(s: Survey): any {
       quality_score: s.qualityScore,
       issues: s.issues,
       lifecycle: s.lifecycle,
-      channels: s.channels
+      channels: s.channels,
+      languages: s.languages,
+      primary_language: s.primaryLanguage
     }
   };
 }

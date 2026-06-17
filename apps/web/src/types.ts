@@ -40,10 +40,12 @@ export interface Question {
   text_en: string;
   text_hi: string;
   text_ta: string;
+  translations?: Record<string, string>;
   type: QuestionType;
   options?: string[]; // English options
   options_hi?: string[];
   options_ta?: string[];
+  options_i18n?: Record<string, string[]>;
   conditionalShow?: string; // expression like "Q_OCCUPATION !== 'Student'"
   autoCodeAs?: 'None' | 'NCO' | 'NIC' | 'ISIC';
   validationRules?: ValidationRule[];
@@ -75,6 +77,8 @@ export interface Survey {
   version: string;
   status: 'Draft' | 'Published';
   questions: Question[];
+  languages?: string[];
+  primaryLanguage?: string;
 }
 
 export interface SurveyLifecycleStage {

@@ -111,7 +111,16 @@ class PromptParser:
 
     def _extract_language(self, prompt: str) -> List[str]:
         p = prompt.lower()
-        lang_map = {"hindi": "hi", "tamil": "ta", "bengali": "bn", "telugu": "te", "marathi": "mr"}
+        lang_map = {
+            "english": "en", "hindi": "hi", "हिन्दी": "hi", "tamil": "ta", "தமிழ்": "ta",
+            "telugu": "te", "తెలుగు": "te", "kannada": "kn", "ಕನ್ನಡ": "kn",
+            "malayalam": "ml", "മലയാളം": "ml", "bengali": "bn", "bangla": "bn", "বাংলা": "bn",
+            "gujarati": "gu", "ગુજરાતી": "gu", "punjabi": "pa", "ਪੰਜਾਬੀ": "pa",
+            "assamese": "as", "অসমীয়া": "as", "odia": "or", "oriya": "or", "ଓଡ଼ିଆ": "or",
+            "marathi": "mr", "मराठी": "mr", "urdu": "ur", "اردو": "ur",
+            "konkani": "kok", "sanskrit": "sa", "manipuri": "mni", "bodo": "brx",
+            "dogri": "doi", "maithili": "mai", "nepali": "ne", "santali": "sat", "kashmiri": "ks",
+        }
         languages = ["en"]
         for name, code in lang_map.items():
             if name in p and code not in languages:

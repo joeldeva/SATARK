@@ -100,6 +100,60 @@ const MOSPI_DOMAINS = [
   { value: 'Enterprise', label: 'Enterprise', prompt: 'enterprise survey domain' },
 ];
 
+const COMMON_TRANSLATIONS: Record<string, Record<string, string>> = {
+  'please confirm your name': {
+    hi: 'कृपया अपना नाम पुष्टि करें', ta: 'உங்கள் பெயரை உறுதிப்படுத்தவும்', te: 'దయచేసి మీ పేరును నిర్ధారించండి',
+    kn: 'ದಯವಿಟ್ಟು ನಿಮ್ಮ ಹೆಸರನ್ನು ದೃಢೀಕರಿಸಿ', ml: 'ദയവായി നിങ്ങളുടെ പേര് സ്ഥിരീകരിക്കുക', bn: 'অনুগ্রহ করে আপনার নাম নিশ্চিত করুন',
+    gu: 'કૃપા કરીને તમારું નામ ખાતરી કરો', pa: 'ਕਿਰਪਾ ਕਰਕੇ ਆਪਣਾ ਨਾਮ ਪੁਸ਼ਟੀ ਕਰੋ', as: 'অনুগ্ৰহ কৰি আপোনাৰ নাম নিশ্চিত কৰক',
+    or: 'ଦୟାକରି ଆପଣଙ୍କ ନାମ ନିଶ୍ଚିତ କରନ୍ତୁ', mr: 'कृपया आपले नाव निश्चित करा', ur: 'براہ کرم اپنا نام تصدیق کریں',
+    kok: 'तुमचें नाव खात्री करात', sa: 'कृपया स्वनाम निश्चितं कुरुत', mni: 'অদোমগী মমিং চুম্না তাকউ',
+    brx: 'नोंथांनि मुं खामानि खालाम', doi: 'कृपा करियै अपना नां पक्का करो', mai: 'कृपया अपन नाम पुष्टि करू',
+    ne: 'कृपया आफ्नो नाम पुष्टि गर्नुहोस्', sat: 'ᱟᱢᱟᱜ ᱧᱩᱛᱩᱢ ᱥᱟᱹᱨᱤᱭᱟᱹᱣ ᱢᱮ', ks: 'مہربانی کٔرِتھ پنُن ناو تصدیق کٔریو'
+  },
+  'what is your age?': {
+    hi: 'आपकी आयु क्या है?', ta: 'உங்கள் வயது என்ன?', te: 'మీ వయస్సు ఎంత?', kn: 'ನಿಮ್ಮ ವಯಸ್ಸು ಎಷ್ಟು?',
+    ml: 'നിങ്ങളുടെ വയസ് എത്ര?', bn: 'আপনার বয়স কত?', gu: 'તમારી ઉંમર કેટલી છે?', pa: 'ਤੁਹਾਡੀ ਉਮਰ ਕਿੰਨੀ ਹੈ?',
+    as: 'আপোনাৰ বয়স কিমান?', or: 'ଆପଣଙ୍କ ବୟସ କେତେ?', mr: 'आपले वय किती आहे?', ur: 'آپ کی عمر کیا ہے؟',
+    kok: 'तुमचें वय कितें?', sa: 'भवतः आयुः कियत्?', mni: 'অদোমগী চহী কয়ানো?', brx: 'नोंथांनि बैसो बेसेबां?',
+    doi: 'तुआड़ी उमर किन्नी ऐ?', mai: 'अहाँक उमर कतेक अछि?', ne: 'तपाईंको उमेर कति हो?', sat: 'ᱟᱢᱟᱜ ᱵᱚᱭᱚᱥ ᱛᱤᱱᱟᱹᱜ?', ks: 'تُہند عُمر کیاہ چھ؟'
+  },
+  'what is your gender?': {
+    hi: 'आपका लिंग क्या है?', ta: 'உங்கள் பாலினம் என்ன?', te: 'మీ లింగం ఏమిటి?', kn: 'ನಿಮ್ಮ ಲಿಂಗ ಯಾವುದು?',
+    ml: 'നിങ്ങളുടെ ലിംഗം എന്താണ്?', bn: 'আপনার লিঙ্গ কী?', gu: 'તમારું લિંગ શું છે?', pa: 'ਤੁਹਾਡਾ ਲਿੰਗ ਕੀ ਹੈ?',
+    as: 'আপোনাৰ লিংগ কি?', or: 'ଆପଣଙ୍କ ଲିଙ୍ଗ କଣ?', mr: 'आपला लिंग काय आहे?', ur: 'آپ کی جنس کیا ہے؟',
+    kok: 'तुमचो लिंग कितें?', sa: 'भवतः लिङ्गं किम्?', mni: 'অদোমগী লৈনিং করিনো?', brx: 'नोंथांनि जेन्डार मा?',
+    doi: 'तुआड़ा लिंग केह ऐ?', mai: 'अहाँक लिंग की अछि?', ne: 'तपाईंको लिङ्ग के हो?', sat: 'ᱟᱢᱟᱜ ᱞᱤᱝᱜ ᱫᱚ ᱪᱮᱫ?', ks: 'تُہند جنس کیاہ چھ؟'
+  },
+  'what is your occupation?': {
+    hi: 'आपका व्यवसाय क्या है?', ta: 'உங்கள் தொழில் என்ன?', te: 'మీ వృత్తి ఏమిటి?', kn: 'ನಿಮ್ಮ ಉದ್ಯೋಗ ಯಾವುದು?',
+    ml: 'നിങ്ങളുടെ തൊഴിൽ എന്താണ്?', bn: 'আপনার পেশা কী?', gu: 'તમારો વ્યવસાય શું છે?', pa: 'ਤੁਹਾਡਾ ਪੇਸ਼ਾ ਕੀ ਹੈ?',
+    as: 'আপোনাৰ পেছা কি?', or: 'ଆପଣଙ୍କ ବୃତ୍ତି କଣ?', mr: 'आपला व्यवसाय काय आहे?', ur: 'آپ کا پیشہ کیا ہے؟',
+    kok: 'तुमचो व्यवसाय कितें?', sa: 'भवतः व्यवसायः कः?', mni: 'অদোমগী থবক করিনো?', brx: 'नोंथांनि हाबा मा?',
+    doi: 'तुआड़ा पेशा केह ऐ?', mai: 'अहाँक पेशा की अछि?', ne: 'तपाईंको पेशा के हो?', sat: 'ᱟᱢᱟᱜ ᱯᱮᱥᱟ ᱫᱚ ᱪᱮᱫ?', ks: 'تُہند پیشہ کیاہ چھ؟'
+  },
+  'monthly income (₹)?': {
+    hi: 'मासिक आय (₹)?', ta: 'மாதாந்திர வருமானம் (₹)?', te: 'నెలవారీ ఆదాయం (₹)?', kn: 'ಮಾಸಿಕ ಆದಾಯ (₹)?',
+    ml: 'പ്രതിമാസ വരുമാനം (₹)?', bn: 'মাসিক আয় (₹)?', gu: 'માસિક આવક (₹)?', pa: 'ਮਾਸਿਕ ਆਮਦਨ (₹)?',
+    as: 'মাহেকীয়া আয় (₹)?', or: 'ମାସିକ ଆୟ (₹)?', mr: 'मासिक उत्पन्न (₹)?', ur: 'ماہانہ آمدنی (₹)؟',
+    kok: 'म्हयन्याची कमाई (₹)?', sa: 'मासिक आयः (₹)?', mni: 'থাগী চাওখৎপা শেনফম (₹)?', brx: 'दानि आय (₹)?',
+    doi: 'महीने दी आमदनी (₹)?', mai: 'मासिक आमदनी (₹)?', ne: 'मासिक आम्दानी (₹)?', sat: 'ᱪᱟᱸᱫᱚ ᱟᱭ (₹)?', ks: 'ماہانہ آمدنی (₹)؟'
+  },
+  'household size?': {
+    hi: 'परिवार का आकार?', ta: 'குடும்ப அளவு?', te: 'ఇంటి సభ్యుల సంఖ్య?', kn: 'ಕುಟುಂಬದ ಗಾತ್ರ?',
+    ml: 'കുടുംബത്തിന്റെ വലുപ്പം?', bn: 'পরিবারের সদস্য সংখ্যা?', gu: 'કુટુંબનું કદ?', pa: 'ਪਰਿਵਾਰ ਦਾ ਆਕਾਰ?',
+    as: 'পৰিয়ালৰ আকাৰ?', or: 'ପରିବାରର ଆକାର?', mr: 'कुटुंबाचा आकार?', ur: 'گھرانے کا سائز؟',
+    kok: 'घरांतले लोक कितले?', sa: 'कुटुम्बस्य आकारः?', mni: 'ইমুংগী মশিং কয়ানো?', brx: 'नखरनि महर बेसेबां?',
+    doi: 'परिवार दा आकार?', mai: 'परिवारक आकार?', ne: 'घरपरिवारको आकार?', sat: 'ᱚᱲᱟᱜ ᱨᱮ ᱦᱚᱲ ᱛᱤᱱᱟᱹᱜ?', ks: 'گھرانُک سائز؟'
+  }
+};
+
+const normalizeQuestionKey = (text: string) => text.trim().toLowerCase().replace(/\s+/g, ' ');
+const languagePromptName = (code: string) => OFFICIAL_LANGUAGES.find(language => language.code === code)?.prompt || 'English';
+const localizeQuestionText = (text: string, langCode: string) => {
+  if (langCode === 'en') return text;
+  return COMMON_TRANSLATIONS[normalizeQuestionKey(text)]?.[langCode] || text;
+};
+
 const SurveyFlowCanvas: React.FC<{
   survey: Survey;
   selectedQuestionId: string | null;
@@ -554,7 +608,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
 
   // Active language view inside Builder canvas
-  const [canvasLang, setCanvasLang] = useState<'en' | 'hi' | 'ta'>('en');
+  const [canvasLang, setCanvasLang] = useState<string>('en');
 
   // Input states & UI triggers
   const [searchTerm, setSearchTerm] = useState('');
@@ -810,8 +864,14 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
         ...generated,
         surveyType: selectedDomain.label,
         name_en: generated.name_en.includes(selectedDomain.label) ? generated.name_en : `${selectedDomain.label} - ${generated.name_en}`,
+        languages: ['en', selectedLanguage.code].filter((value, index, all) => all.indexOf(value) === index),
+        primaryLanguage: selectedLanguage.code,
         questions: generated.questions.map(question => ({
           ...question,
+          translations: {
+            ...(question.translations || {}),
+            [selectedLanguage.code]: localizeQuestionText(question.text_en, selectedLanguage.code)
+          },
           sourceTrace: question.sourceTrace
             ? { ...question.sourceTrace, language: selectedLanguage.prompt }
             : question.sourceTrace
@@ -824,6 +884,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
       });
       setSelectedSurvey(withSelections);
       setSelectedQuestionId(initialQId);
+      setCanvasLang(selectedLanguage.code);
       setIsGenerating(false);
       setIsPromptWizardOpen(false);
       setShowAIProvenance(true);
@@ -1062,6 +1123,23 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
   );
 
   const selectedQuestion = selectedSurvey?.questions.find(q => q.id === selectedQuestionId);
+  const selectedCanvasLanguage = OFFICIAL_LANGUAGES.find(language => language.code === canvasLang) || OFFICIAL_LANGUAGES[0];
+  const getQuestionText = (question: Question, langCode: string = canvasLang) => {
+    if (langCode === 'en') return question.text_en;
+    if (langCode === 'hi') return question.text_hi || question.text_en;
+    if (langCode === 'ta') return question.text_ta || question.text_en;
+    return question.translations?.[langCode] || localizeQuestionText(question.text_en, langCode);
+  };
+  const updateSelectedQuestionTranslation = (langCode: string, text: string) => {
+    if (!selectedQuestion) return;
+    if (langCode === 'en') return handleUpdateQuestionProperty('text_en', text);
+    if (langCode === 'hi') return handleUpdateQuestionProperty('text_hi', text);
+    if (langCode === 'ta') return handleUpdateQuestionProperty('text_ta', text);
+    return handleUpdateQuestionProperty('translations', {
+      ...(selectedQuestion.translations || {}),
+      [langCode]: text
+    });
+  };
 
   return (
     <div className="space-y-6" id="sdrd-workspace-layout-root">
@@ -1341,11 +1419,17 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                     </div>
                   </div>
 
-                  {/* Visual Language Tab Preview options */}
-                  <div className="flex bg-slate-100 p-0.5 rounded border border-slate-200 text-[10px] font-bold shrink-0">
-                    <button onClick={() => setCanvasLang('en')} className={`px-2 py-1 rounded ${canvasLang === 'en' ? 'bg-[#1A2A6C] text-white' : 'text-slate-600'}`}>EN</button>
-                    <button onClick={() => setCanvasLang('hi')} className={`px-2 py-1 rounded ${canvasLang === 'hi' ? 'bg-[#1A2A6C] text-white' : 'text-slate-600'}`}>हिंदी</button>
-                    <button onClick={() => setCanvasLang('ta')} className={`px-2 py-1 rounded ${canvasLang === 'ta' ? 'bg-[#1A2A6C] text-white' : 'text-slate-600'}`}>தமிழ்</button>
+                  <div className="shrink-0">
+                    <label className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-400">Preview Language</label>
+                    <select
+                      value={canvasLang}
+                      onChange={event => setCanvasLang(event.target.value)}
+                      className="max-w-[190px] rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-700"
+                    >
+                      {OFFICIAL_LANGUAGES.map(language => (
+                        <option key={language.code} value={language.code}>{language.label}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -1409,7 +1493,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                                 )}
                               </div>
                               <p className="text-slate-800 text-xs font-bold leading-relaxed pt-1.5">
-                                {canvasLang === 'en' ? q.text_en : canvasLang === 'hi' ? q.text_hi : q.text_ta}
+                                {getQuestionText(q)}
                               </p>
 
                               {/* Choices list if choices */}
@@ -1539,6 +1623,19 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                               className="w-full text-xs p-2 border border-slate-250 bg-white rounded mt-1 font-medium"
                             />
                           </div>
+                          {!['en', 'hi', 'ta'].includes(canvasLang) && (
+                            <div>
+                              <span className="text-[10px] font-black bg-blue-50 text-blue-700 px-2 py-0.5 rounded uppercase">
+                                {selectedCanvasLanguage.label} prompt label
+                              </span>
+                              <textarea
+                                rows={2}
+                                value={getQuestionText(selectedQuestion, canvasLang)}
+                                onChange={event => updateSelectedQuestionTranslation(canvasLang, event.target.value)}
+                                className="w-full text-xs p-2 border border-slate-250 bg-white rounded mt-1 font-medium"
+                              />
+                            </div>
+                          )}
                         </div>
 
                         {/* Choices editor if Choice Question */}
