@@ -9,7 +9,11 @@ module.exports = async function handler(req, res) {
   const incomingUrl = new URL(req.url || '/', `https://${req.headers.host || 'localhost'}`);
   incomingUrl.searchParams.delete('path');
 
-  const targetUrl = new URL(`/api/${path}`, backendUrl);
+  const normalizedPath = path.replace(/^\/+/, '');
+  const upstreamPath = normalizedPath === 'health' || normalizedPath.startsWith('health/')
+    ? `/${normalizedPath}`
+    : `/api/${normalizedPath}`;
+  const targetUrl = new URL(upstreamPath, backendUrl);
   targetUrl.search = incomingUrl.search;
 
   const headers = new Headers();
