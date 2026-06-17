@@ -115,6 +115,7 @@ Rules:
 - Use only domains listed above.
 - Keep topics useful for retrieving official survey questions.
 - Propose 8 to 14 draft questions that are specific to the user's topic.
+- Keep every draft_questions[].text value in English. The SATARK translation layer will generate Indian-language labels after planning.
 - Avoid generic filler questions unless they are needed demographics.
 - For financial, policy, currency, or demonetisation prompts, use household as the domain and create topic-specific draft questions.
 - If the prompt asks for Hindi or Tamil, include that code plus "en".

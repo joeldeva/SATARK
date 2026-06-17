@@ -756,7 +756,13 @@ export const api = {
     try {
       const res = await request<{ survey: any }>('/surveys/generate', {
         method: 'POST',
-        body: JSON.stringify({ prompt })
+        body: JSON.stringify({
+          prompt,
+          domain: options?.domain,
+          language: options?.language?.code,
+          language_label: options?.language?.label,
+          language_prompt: options?.language?.prompt
+        })
       });
       mapped = mapDbSurveyToFe(res.survey);
     } catch {

@@ -11,6 +11,7 @@ from app.auth.jwt import encode_token
 from app.auth.password import verify_password
 from app.auth.rbac import PERMISSIONS_BY_ROLE, get_current_user, require_scope
 from app.config import settings
+from services.translation_service import LANGUAGE_NAMES, translate_survey_texts
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -40,6 +41,110 @@ def _question_bank() -> list[dict[str, Any]]:
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
     return data.get("questions", data if isinstance(data, list) else [])
+
+
+_STANDARD_QUESTION_TRANSLATIONS: dict[str, dict[str, str]] = {
+    "what is your age?": {
+        "hi": "\u0906\u092a\u0915\u0940 \u0906\u092f\u0941 \u0915\u094d\u092f\u093e \u0939\u0948?",
+        "ta": "\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0bb5\u0baf\u0ba4\u0bc1 \u0b8e\u0ba9\u0bcd\u0ba9?",
+        "te": "\u0c2e\u0c40 \u0c35\u0c2f\u0c38\u0c4d\u0c38\u0c41 \u0c0e\u0c02\u0c24?",
+        "kn": "\u0ca8\u0cbf\u0cae\u0ccd\u0cae \u0cb5\u0caf\u0cb8\u0ccd\u0cb8\u0cc1 \u0c8e\u0cb7\u0ccd\u0c9f\u0cc1?",
+        "ml": "\u0d28\u0d3f\u0d19\u0d4d\u0d19\u0d33\u0d41\u0d1f\u0d46 \u0d35\u0d2f\u0d38\u0d4d \u0d0e\u0d24\u0d4d\u0d30?",
+        "bn": "\u0986\u09aa\u09a8\u09be\u09b0 \u09ac\u09af\u09bc\u09b8 \u0995\u09a4?",
+        "gu": "\u0aa4\u0aae\u0abe\u0ab0\u0ac0 \u0a89\u0a82\u0aae\u0ab0 \u0a95\u0ac7\u0a9f\u0ab2\u0ac0 \u0a9b\u0ac7?",
+        "pa": "\u0aa4\u0ac1\u0ab9\u0abe\u0aa1\u0ac0 \u0a89\u0aae\u0ab0 \u0a95\u0abf\u0a82\u0aa8\u0ac0 \u0ab9\u0ac8?",
+        "mr": "\u0906\u092a\u0932\u0947 \u0935\u092f \u0915\u093f\u0924\u0940 \u0906\u0939\u0947?",
+        "ur": "\u0622\u067e \u06a9\u06cc \u0639\u0645\u0631 \u06a9\u06cc\u0627 \u06c1\u06d2\u061f",
+    },
+    "what is your gender?": {
+        "hi": "\u0906\u092a\u0915\u093e \u0932\u093f\u0902\u0917 \u0915\u094d\u092f\u093e \u0939\u0948?",
+        "ta": "\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0baa\u0bbe\u0bb2\u0bbf\u0ba9\u0bae\u0bcd \u0b8e\u0ba9\u0bcd\u0ba9?",
+        "te": "\u0c2e\u0c40 \u0c32\u0c3f\u0c02\u0c17\u0c02 \u0c0f\u0c2e\u0c3f\u0c1f\u0c3f?",
+        "kn": "\u0ca8\u0cbf\u0cae\u0ccd\u0cae \u0cb2\u0cbf\u0c82\u0c97 \u0caf\u0cbe\u0cb5\u0cc1\u0ca6\u0cc1?",
+        "ml": "\u0d28\u0d3f\u0d19\u0d4d\u0d19\u0d33\u0d41\u0d1f\u0d46 \u0d32\u0d3f\u0d02\u0d17\u0d02 \u0d0e\u0d28\u0d4d\u0d24\u0d3e\u0d23\u0d4d?",
+        "bn": "\u0986\u09aa\u09a8\u09be\u09b0 \u09b2\u09bf\u0999\u09cd\u0997 \u0995\u09c0?",
+        "gu": "\u0aa4\u0aae\u0abe\u0ab0\u0ac1\u0a82 \u0ab2\u0abf\u0a82\u0a97 \u0ab6\u0ac1\u0a82 \u0a9b\u0ac7?",
+        "pa": "\u0aa4\u0ac1\u0ab9\u0abe\u0aa1\u0abe \u0ab2\u0abf\u0a82\u0a97 \u0a95\u0ac0 \u0ab9\u0ac8?",
+        "mr": "\u0906\u092a\u0932\u093e \u0932\u093f\u0902\u0917 \u0915\u093e\u092f \u0906\u0939\u0947?",
+        "ur": "\u0622\u067e \u06a9\u06cc \u062c\u0646\u0633 \u06a9\u06cc\u0627 \u06c1\u06d2\u061f",
+    },
+    "what is your occupation?": {
+        "hi": "\u0906\u092a\u0915\u093e \u0935\u094d\u092f\u0935\u0938\u093e\u092f \u0915\u094d\u092f\u093e \u0939\u0948?",
+        "ta": "\u0b89\u0b99\u0bcd\u0b95\u0bb3\u0bcd \u0ba4\u0bca\u0bb4\u0bbf\u0bb2\u0bcd \u0b8e\u0ba9\u0bcd\u0ba9?",
+        "te": "\u0c2e\u0c40 \u0c35\u0c43\u0c24\u0c4d\u0c24\u0c3f \u0c0f\u0c2e\u0c3f\u0c1f\u0c3f?",
+        "kn": "\u0ca8\u0cbf\u0cae\u0ccd\u0cae \u0c89\u0ca6\u0ccd\u0caf\u0ccb\u0c97 \u0caf\u0cbe\u0cb5\u0cc1\u0ca6\u0cc1?",
+        "ml": "\u0d28\u0d3f\u0d19\u0d4d\u0d19\u0d33\u0d41\u0d1f\u0d46 \u0d24\u0d4a\u0d34\u0d3f\u0d7d \u0d0e\u0d28\u0d4d\u0d24\u0d3e\u0d23\u0d4d?",
+        "bn": "\u0986\u09aa\u09a8\u09be\u09b0 \u09aa\u09c7\u09b6\u09be \u0995\u09c0?",
+        "gu": "\u0aa4\u0aae\u0abe\u0ab0\u0acb \u0ab5\u0acd\u0aaf\u0ab5\u0ab8\u0abe\u0aaf \u0ab6\u0ac1\u0a82 \u0a9b\u0ac7?",
+        "pa": "\u0aa4\u0ac1\u0ab9\u0abe\u0aa1\u0abe \u0aaa\u0ac7\u0ab6\u0abe \u0a95\u0ac0 \u0ab9\u0ac8?",
+        "mr": "\u0906\u092a\u0932\u093e \u0935\u094d\u092f\u0935\u0938\u093e\u092f \u0915\u093e\u092f \u0906\u0939\u0947?",
+        "ur": "\u0622\u067e \u06a9\u0627 \u067e\u06cc\u0634\u06c1 \u06a9\u06cc\u0627 \u06c1\u06d2\u061f",
+    },
+    "monthly income (\u20b9)?": {
+        "hi": "\u092e\u093e\u0938\u093f\u0915 \u0906\u092f (\u20b9)?",
+        "ta": "\u0bae\u0bbe\u0ba4\u0bbe\u0ba8\u0bcd\u0ba4\u0bbf\u0bb0 \u0bb5\u0bb0\u0bc1\u0bae\u0bbe\u0ba9\u0bae\u0bcd (\u20b9)?",
+        "te": "\u0c28\u0c46\u0c32\u0c35\u0c3e\u0c30\u0c40 \u0c06\u0c26\u0c3e\u0c2f\u0c02 (\u20b9)?",
+        "kn": "\u0cae\u0cbe\u0cb8\u0cbf\u0c95 \u0c86\u0ca6\u0cbe\u0caf (\u20b9)?",
+        "ml": "\u0d2a\u0d4d\u0d30\u0d24\u0d3f\u0d2e\u0d3e\u0d38 \u0d35\u0d30\u0d41\u0d2e\u0d3e\u0d28\u0d02 (\u20b9)?",
+        "bn": "\u09ae\u09be\u09b8\u09bf\u0995 \u0986\u09af\u09bc (\u20b9)?",
+        "gu": "\u0aae\u0abe\u0ab8\u0abf\u0a95 \u0a86\u0ab5\u0a95 (\u20b9)?",
+        "pa": "\u0aae\u0abe\u0ab8\u0abf\u0a95 \u0a86\u0aae\u0aa6\u0aa8 (\u20b9)?",
+        "mr": "\u092e\u093e\u0938\u093f\u0915 \u0909\u0924\u094d\u092a\u0928\u094d\u0928 (\u20b9)?",
+        "ur": "\u0645\u0627\u06c1\u0627\u0646\u06c1 \u0622\u0645\u062f\u0646\u06cc (\u20b9)\u061f",
+    },
+    "household size?": {
+        "hi": "\u092a\u0930\u093f\u0935\u093e\u0930 \u0915\u093e \u0906\u0915\u093e\u0930?",
+        "ta": "\u0b95\u0bc1\u0b9f\u0bc1\u0bae\u0bcd\u0baa \u0b85\u0bb3\u0bb5\u0bc1?",
+        "te": "\u0c07\u0c02\u0c1f\u0c3f \u0c38\u0c2d\u0c4d\u0c2f\u0c41\u0c32 \u0c38\u0c02\u0c16\u0c4d\u0c2f?",
+        "kn": "\u0c95\u0cc1\u0c9f\u0cc1\u0c82\u0cac\u0ca6 \u0c97\u0cbe\u0ca4\u0ccd\u0cb0?",
+        "ml": "\u0d15\u0d41\u0d1f\u0d41\u0d02\u0d2c\u0d24\u0d4d\u0d24\u0d3f\u0d28\u0d4d\u0d31\u0d46 \u0d35\u0d32\u0d41\u0d2a\u0d4d\u0d2a\u0d02?",
+        "bn": "\u09aa\u09b0\u09bf\u09ac\u09be\u09b0\u09c7\u09b0 \u09b8\u09a6\u09b8\u09cd\u09af \u09b8\u0982\u0996\u09cd\u09af\u09be?",
+        "gu": "\u0a95\u0ac1\u0a9f\u0ac1\u0a82\u0aac\u0aa8\u0ac1\u0a82 \u0a95\u0aa6?",
+        "pa": "\u0aaa\u0ab0\u0abf\u0ab5\u0abe\u0ab0 \u0aa6\u0abe \u0a86\u0a95\u0abe\u0ab0?",
+        "mr": "\u0915\u0941\u091f\u0941\u0902\u092c\u093e\u091a\u093e \u0906\u0915\u093e\u0930?",
+        "ur": "\u06af\u06be\u0631\u0627\u0646\u06d2 \u06a9\u0627 \u0633\u0627\u0626\u0632\u061f",
+    },
+}
+
+
+def _normalize_i18n_key(text: str) -> str:
+    return " ".join(str(text or "").strip().lower().split())
+
+
+def _standard_translation(text: str, language: str) -> str | None:
+    return _STANDARD_QUESTION_TRANSLATIONS.get(_normalize_i18n_key(text), {}).get(language)
+
+
+def _normalize_language_codes(values: Any) -> list[str]:
+    alias_to_code = {name.lower(): code for code, name in LANGUAGE_NAMES.items()}
+    alias_to_code.update({
+        "english": "en",
+        "hindi": "hi",
+        "tamil": "ta",
+        "telugu": "te",
+        "kannada": "kn",
+        "malayalam": "ml",
+        "bangla": "bn",
+        "bengali": "bn",
+        "punjabi": "pa",
+        "assamese": "as",
+        "odia": "or",
+        "oriya": "or",
+        "marathi": "mr",
+        "urdu": "ur",
+    })
+    raw_values = values if isinstance(values, list) else [values]
+    result: list[str] = []
+    for value in raw_values:
+        item = str(value or "").strip()
+        if not item:
+            continue
+        code = item if item in LANGUAGE_NAMES else alias_to_code.get(item.lower())
+        if code and code not in result:
+            result.append(code)
+    if "en" not in result:
+        result.insert(0, "en")
+    return result
 
 
 @router.post("/auth/login")
@@ -127,6 +232,19 @@ async def generate_seed_survey(request: Dict[str, Any], user: dict = Depends(get
         raise HTTPException(status_code=503, detail="Survey generator not initialized")
 
     prompt = str(request.get("prompt", "")).strip()
+    domain = str(request.get("domain", "")).strip()
+    language_code = str(request.get("language", "")).strip()
+    language_prompt = str(request.get("language_prompt") or request.get("language_label") or "").strip()
+    prompt_parts = [prompt]
+    if domain and domain.lower() not in prompt.lower():
+        prompt_parts.append(f"Survey Domain: {domain}.")
+    if language_code or language_prompt:
+        language_text = language_prompt or language_code
+        if language_text.lower() not in prompt.lower():
+            prompt_parts.append(
+                f"Target Language: {language_text} ({language_code}). Generate citizen-facing labels in that language where possible."
+            )
+    prompt = "\n".join(part for part in prompt_parts if part)
     user_id = request.get("user_id") or user.get("username") or "sdrd"
     if len(prompt) < 10:
         raise HTTPException(status_code=400, detail="Prompt must be at least 10 characters")
@@ -1278,17 +1396,35 @@ def _log_generation_only(survey: Dict[str, Any], prompt: str, user_id: str, elap
 
 def _generated_to_designer_survey(generated: dict[str, Any]) -> dict[str, Any]:
     nodes = []
-    languages = generated.get("languages") or ["en", "hi", "ta"]
-    for question in generated.get("questions", []):
+    languages = _normalize_language_codes(generated.get("languages") or ["en", "hi", "ta"])
+    questions = generated.get("questions", [])
+    target_languages = [str(language) for language in languages if str(language) != "en"]
+    translated_questions: dict[str, list[str]] = {}
+    english_questions = [question.get("text") or "Question" for question in questions]
+    for language in target_languages:
+        translated_questions[language] = translate_survey_texts(english_questions, language)
+
+    for index, question in enumerate(questions):
         validation = question.get("validation") or {}
         question_text = question.get("text") or "Question"
+        translations = question.get("translations", {}) or {}
         q_i18n = {
             "en": question_text,
-            "hi": question.get("translations", {}).get("hi") or question_text,
-            "ta": question.get("translations", {}).get("ta") or question_text,
+            "hi": translations.get("hi") or _standard_translation(question_text, "hi") or question_text,
+            "ta": translations.get("ta") or _standard_translation(question_text, "ta") or question_text,
         }
         for language in languages:
-            q_i18n.setdefault(str(language), question.get("translations", {}).get(str(language)) or question_text)
+            language_code = str(language)
+            translated_list = translated_questions.get(language_code) or []
+            model_translation = translated_list[index] if index < len(translated_list) else question_text
+            translated_text = (
+                translations.get(language_code)
+                or _standard_translation(question_text, language_code)
+                or model_translation
+                or question_text
+            )
+            if language_code not in q_i18n or q_i18n[language_code] == question_text:
+                q_i18n[language_code] = translated_text
         node: dict[str, Any] = {
             "id": question.get("id") or question.get("display_id"),
             "type": _designer_question_type(question.get("type")),
@@ -1297,10 +1433,20 @@ def _generated_to_designer_survey(generated: dict[str, Any]) -> dict[str, Any]:
         if question.get("standard_code"):
             node["codeType"] = question["standard_code"]
         if question.get("options"):
-            node["options"] = [
-                option.get("label") or option.get("text") or str(option)
+            option_labels = [
+                option.get("label") or option.get("text") or str(option) if isinstance(option, dict) else str(option)
                 for option in question["options"]
             ]
+            node["options"] = option_labels
+            options_i18n = {}
+            for language in target_languages:
+                options_i18n[language] = translate_survey_texts(option_labels, language)
+                if language == "hi":
+                    node["options_hi"] = options_i18n[language]
+                if language == "ta":
+                    node["options_ta"] = options_i18n[language]
+            if options_i18n:
+                node["options_i18n"] = options_i18n
         if validation.get("min") is not None or validation.get("max") is not None:
             node["rules"] = {
                 "range": [
@@ -1314,7 +1460,7 @@ def _generated_to_designer_survey(generated: dict[str, Any]) -> dict[str, Any]:
                 "source_document": trace.get("source_document") or question.get("source") or "SATARK question bank",
                 "section": trace.get("section") or question.get("subdomain") or "Survey module",
                 "question_id": trace.get("question_id") or question.get("id") or question.get("display_id"),
-                "language": trace.get("language") or "English",
+                "language": trace.get("language") or ", ".join(LANGUAGE_NAMES.get(language, language) for language in languages),
                 "confidence": trace.get("confidence") or question.get("relevance_score") or 80,
                 "retrieved_context": trace.get("retrieved_context") or question.get("text") or "",
                 "generated_reason": trace.get("generated_reason") or "Included because it matched the survey goal and validation requirements.",
@@ -1322,16 +1468,26 @@ def _generated_to_designer_survey(generated: dict[str, Any]) -> dict[str, Any]:
             node["provenance"] = node["sourceTrace"]
         nodes.append(node)
 
+    title = generated.get("title") or "Generated Survey"
+    title_i18n = {"en": title, "hi": title, "ta": title}
+    for language in target_languages:
+        title_i18n[language] = translate_survey_texts([title], language)[0]
+
     return {
         "id": generated.get("survey_id"),
-        "title": {
-            "en": generated.get("title") or "Generated Survey",
-            "hi": generated.get("title") or "Generated Survey",
-            "ta": generated.get("title") or "Generated Survey",
-        },
+        "title": title_i18n,
         "nodes": nodes,
         "branches": {},
-        "metadata": {**(generated.get("metadata", {}) or {}), "languages": languages},
+        "metadata": {
+            **(generated.get("metadata", {}) or {}),
+            "languages": languages,
+            "translation": {
+                "provider": settings.TRANSLATION_PROVIDER,
+                "model": settings.TRANSLATION_MODEL,
+                "privacy": "offline_local" if settings.TRANSLATION_PROVIDER == "ollama" else "configured_provider",
+                "target_languages": target_languages,
+            },
+        },
     }
 
 

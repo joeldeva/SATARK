@@ -841,8 +841,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
 
   // Dynamic Prompt-to-Canvas Generator
   const handleGenerateFromPrompt = async () => {
-    const query = promptText.trim();
-    if (!query) return;
+    const query = promptText.trim() || 'Household expenditure survey on grain and food items for urban Tamil Nadu, 12 variables';
     setIsGenerating(true);
     setGenerationStep('Ingesting manuals and building dynamic questionnaire structures...');
 
@@ -1831,7 +1830,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                         </div>
                         
                         <button
-                          disabled={isGenerating || !promptText.trim()}
+                          disabled={isGenerating}
                           onClick={handleGenerateFromPrompt}
                           className="w-full py-2 bg-slate-800 text-white font-bold text-xs rounded-lg shadow disabled:opacity-40 hover:bg-slate-900 transition-colors"
                         >
@@ -2352,7 +2351,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                 Cancel
               </button>
               <button 
-                disabled={isGenerating || !promptText.trim()}
+                disabled={isGenerating}
                 onClick={handleGenerateFromPrompt}
                 className="px-4 py-2 bg-slate-900 text-white font-bold rounded-lg hover:bg-slate-1000 disabled:opacity-40"
               >

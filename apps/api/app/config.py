@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://127.0.0.1:11434"
     LLM_REQUIRED: bool = True
     LLM_TIMEOUT_SECONDS: int = 45
+    TRANSLATION_PROVIDER: str = "ollama"  # ollama | indictrans2 | bhashini | none
+    TRANSLATION_MODEL: str = "gemma2:2b"
+    TRANSLATION_TIMEOUT_SECONDS: int = 60
+    INDIC_TRANS2_MODEL_PATH: Optional[str] = None
 
     # OpenRouter (online, OpenAI-compatible) — used when LLM_PROVIDER=openrouter.
     OPENROUTER_API_KEY: Optional[str] = None
