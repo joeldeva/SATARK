@@ -68,6 +68,38 @@ const buildDdiDraftId = (title: string) => {
   return `DDI-IND-MOSPI-PLFS26-DRAFT-${Date.now().toString().slice(-4)}`;
 };
 
+const OFFICIAL_LANGUAGES = [
+  { code: 'en', label: 'English', prompt: 'English' },
+  { code: 'hi', label: 'हिन्दी', prompt: 'Hindi' },
+  { code: 'ta', label: 'தமிழ்', prompt: 'Tamil' },
+  { code: 'te', label: 'తెలుగు', prompt: 'Telugu' },
+  { code: 'kn', label: 'ಕನ್ನಡ', prompt: 'Kannada' },
+  { code: 'ml', label: 'മലയാളം', prompt: 'Malayalam' },
+  { code: 'bn', label: 'বাংলা', prompt: 'Bangla' },
+  { code: 'gu', label: 'ગુજરાતી', prompt: 'Gujarati' },
+  { code: 'pa', label: 'ਪੰਜਾਬੀ', prompt: 'Punjabi' },
+  { code: 'as', label: 'অসমীয়া', prompt: 'Assamese' },
+  { code: 'or', label: 'ଓଡ଼ିଆ', prompt: 'Odia' },
+  { code: 'mr', label: 'मराठी', prompt: 'Marathi' },
+  { code: 'ur', label: 'اردو', prompt: 'Urdu' },
+  { code: 'kok', label: 'Konkani', prompt: 'Konkani' },
+  { code: 'sa', label: 'Sanskrit', prompt: 'Sanskrit' },
+  { code: 'mni', label: 'Manipuri', prompt: 'Manipuri' },
+  { code: 'brx', label: 'Bodo', prompt: 'Bodo' },
+  { code: 'doi', label: 'Dogri', prompt: 'Dogri' },
+  { code: 'mai', label: 'Maithili', prompt: 'Maithili' },
+  { code: 'ne', label: 'Nepali', prompt: 'Nepali' },
+  { code: 'sat', label: 'Santali', prompt: 'Santali' },
+  { code: 'ks', label: 'Kashmiri', prompt: 'Kashmiri' },
+];
+
+const MOSPI_DOMAINS = [
+  { value: 'Socio-Economic & Household', label: 'Socio-Economic & Household', prompt: 'socio-economic and household survey' },
+  { value: 'PLFS', label: 'PLFS', prompt: 'Periodic Labour Force Survey employment domain' },
+  { value: 'Agriculture', label: 'Agriculture', prompt: 'agriculture survey domain' },
+  { value: 'Enterprise', label: 'Enterprise', prompt: 'enterprise survey domain' },
+];
+
 const SurveyFlowCanvas: React.FC<{
   survey: Survey;
   selectedQuestionId: string | null;
@@ -527,8 +559,8 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
   // Input states & UI triggers
   const [searchTerm, setSearchTerm] = useState('');
   const [promptText, setPromptText] = useState('');
-  const [domainFilter, setDomainFilter] = useState('Labour');
-  const [promptLangs, setPromptLangs] = useState({ en: true, hi: true, ta: true });
+  const [domainFilter, setDomainFilter] = useState('PLFS');
+  const [promptLanguage, setPromptLanguage] = useState('en');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStep, setGenerationStep] = useState<string>('');
   const [refineText, setRefineText] = useState('');
@@ -761,14 +793,36 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
     setGenerationStep('Ingesting manuals and building dynamic questionnaire structures...');
 
     try {
-      const generated = await api.generateSurveyFromPrompt(query);
+      const selectedDomain = MOSPI_DOMAINS.find(domain => domain.value === domainFilter) || MOSPI_DOMAINS[1];
+      const selectedLanguage = OFFICIAL_LANGUAGES.find(language => language.code === promptLanguage) || OFFICIAL_LANGUAGES[0];
+      const generationPrompt = [
+        query,
+        `Survey Domain: ${selectedDomain.label} (${selectedDomain.prompt}).`,
+        `Target Language: ${selectedLanguage.prompt}. Show labels in ${selectedLanguage.label} where possible.`,
+        'Use simple citizen-facing wording, source traceability, validation rules, and MoSPI DDI metadata.'
+      ].join('\n');
+      const generated = await api.generateSurveyFromPrompt(generationPrompt, {
+        domain: selectedDomain.value,
+        language: selectedLanguage
+      });
       const initialQId = generated.questions.length > 0 ? generated.questions[0].id : null;
+      const withSelections: Survey = {
+        ...generated,
+        surveyType: selectedDomain.label,
+        name_en: generated.name_en.includes(selectedDomain.label) ? generated.name_en : `${selectedDomain.label} - ${generated.name_en}`,
+        questions: generated.questions.map(question => ({
+          ...question,
+          sourceTrace: question.sourceTrace
+            ? { ...question.sourceTrace, language: selectedLanguage.prompt }
+            : question.sourceTrace
+        }))
+      };
       
       setSurveys(prev => {
-        const filtered = prev.filter(s => s.id !== generated.id);
-        return [...filtered, generated];
+        const filtered = prev.filter(s => s.id !== withSelections.id);
+        return [...filtered, withSelections];
       });
-      setSelectedSurvey(generated);
+      setSelectedSurvey(withSelections);
       setSelectedQuestionId(initialQId);
       setIsGenerating(false);
       setIsPromptWizardOpen(false);
@@ -1211,6 +1265,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                           <td className="p-3.5">
                             <div className="flex gap-1">
                               <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">EN</span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded">22 languages</span>
                               <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">हिं</span>
                               <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">த</span>
                             </div>
@@ -1651,30 +1706,30 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                           placeholder="Describe the survey evaluation guidelines... (e.g. Household employment survey for rural Tamil Nadu)"
                           className="w-full text-xs border border-slate-200 rounded-lg p-2 font-medium"
                         />
-                        <div className="flex gap-2 items-center justify-between text-[11px]">
+                        <div className="grid grid-cols-1 gap-2 text-[11px] sm:grid-cols-2">
                           <div>
-                            <span className="text-slate-400 font-bold block text-[10px]">Domain:</span>
+                            <span className="text-slate-400 font-bold block text-[10px]">Survey Domain</span>
                             <select 
                               value={domainFilter} 
                               onChange={e => setDomainFilter(e.target.value)}
-                              className="border border-slate-200 rounded p-0.5 bg-white"
+                              className="w-full border border-slate-200 rounded p-1.5 bg-white font-bold text-slate-700"
                             >
-                              <option value="Labour">Labour & Trades</option>
-                              <option value="Agri">Agriculture</option>
-                              <option value="HCES">Consumption Exp.</option>
-                              <option value="Demo">Demographics</option>
+                              {MOSPI_DOMAINS.map(domain => (
+                                <option key={domain.value} value={domain.value}>{domain.label}</option>
+                              ))}
                             </select>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <label className="flex items-center gap-1">
-                              <input type="checkbox" checked={promptLangs.en} onChange={e => setPromptLangs({...promptLangs, en: e.target.checked})} /> EN
-                            </label>
-                            <label className="flex items-center gap-1">
-                              <input type="checkbox" checked={promptLangs.hi} onChange={e => setPromptLangs({...promptLangs, hi: e.target.checked})} /> HI
-                            </label>
-                            <label className="flex items-center gap-1">
-                              <input type="checkbox" checked={promptLangs.ta} onChange={e => setPromptLangs({...promptLangs, ta: e.target.checked})} /> TA
-                            </label>
+                          <div>
+                            <span className="text-slate-400 font-bold block text-[10px]">Language</span>
+                            <select
+                              value={promptLanguage}
+                              onChange={e => setPromptLanguage(e.target.value)}
+                              className="w-full border border-slate-200 rounded p-1.5 bg-white font-bold text-slate-700"
+                            >
+                              {OFFICIAL_LANGUAGES.map(language => (
+                                <option key={language.code} value={language.code}>{language.label}</option>
+                              ))}
+                            </select>
                           </div>
                         </div>
                         
@@ -2159,31 +2214,28 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <span className="block text-[11px] text-slate-450 mb-1">Sector domain filter:</span>
+                  <span className="block text-[11px] text-slate-450 mb-1">Survey Domain</span>
                   <select 
                     value={domainFilter} 
                     onChange={e => setDomainFilter(e.target.value)}
                     className="w-full p-2 border border-slate-200 bg-white rounded font-bold text-xs"
                   >
-                    <option value="Labour">Labour & Trades (PLFS)</option>
-                    <option value="Agri">Agriculture oper.</option>
-                    <option value="HCES">Household expense (HCES)</option>
-                    <option value="Demo">Stratum Demographics</option>
+                    {MOSPI_DOMAINS.map(domain => (
+                      <option key={domain.value} value={domain.value}>{domain.label}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
-                  <span className="block text-[11px] text-slate-450 mb-1">Target languages:</span>
-                  <div className="flex gap-2.5 pt-2">
-                    <label className="flex items-center gap-1 font-bold">
-                      <input type="checkbox" checked={promptLangs.en} onChange={e => setPromptLangs({...promptLangs, en: e.target.checked})} /> EN
-                    </label>
-                    <label className="flex items-center gap-1 font-bold">
-                      <input type="checkbox" checked={promptLangs.hi} onChange={e => setPromptLangs({...promptLangs, hi: e.target.checked})} /> HI
-                    </label>
-                    <label className="flex items-center gap-1 font-bold">
-                      <input type="checkbox" checked={promptLangs.ta} onChange={e => setPromptLangs({...promptLangs, ta: e.target.checked})} /> TA
-                    </label>
-                  </div>
+                  <span className="block text-[11px] text-slate-450 mb-1">Language</span>
+                  <select
+                    value={promptLanguage}
+                    onChange={e => setPromptLanguage(e.target.value)}
+                    className="w-full p-2 border border-slate-200 bg-white rounded font-bold text-xs"
+                  >
+                    {OFFICIAL_LANGUAGES.map(language => (
+                      <option key={language.code} value={language.code}>{language.label}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

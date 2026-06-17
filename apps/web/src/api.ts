@@ -729,7 +729,10 @@ export const api = {
     }
   },
 
-  async generateSurveyFromPrompt(prompt: string): Promise<Survey> {
+  async generateSurveyFromPrompt(
+    prompt: string,
+    options?: { domain?: string; language?: { code: string; label: string; prompt: string } }
+  ): Promise<Survey> {
     let mapped: Survey;
     try {
       const res = await request<{ survey: any }>('/surveys/generate', {
@@ -765,8 +768,17 @@ export const api = {
       year: mapped.year || '2026',
       organization: 'MoSPI',
       country: 'IND',
+      surveyType: options?.domain || mapped.surveyType,
       questions: mapped.questions.map((q, index) => withFallbackTrace(q, mapped.name_en, index))
     };
+    if (options?.language) {
+      mapped.questions = mapped.questions.map(question => ({
+        ...question,
+        sourceTrace: question.sourceTrace
+          ? { ...question.sourceTrace, language: options.language!.prompt }
+          : question.sourceTrace
+      }));
+    }
     return mapped;
   },
 
