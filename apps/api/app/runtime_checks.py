@@ -38,8 +38,8 @@ def check_redis() -> dict[str, Any]:
         client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
         client.ping()
     except Exception as exc:  # noqa: BLE001
-        raise RuntimeCheckError(f"Redis is unreachable at {settings.REDIS_URL}: {exc}") from exc
-    return {"ok": True, "url": settings.REDIS_URL}
+        raise RuntimeCheckError(f"Redis is unreachable at {_redact_url(settings.REDIS_URL)}: {exc}") from exc
+    return {"ok": True, "url": _redact_url(settings.REDIS_URL)}
 
 
 def check_vector_store() -> dict[str, Any]:
@@ -151,3 +151,13 @@ def _alembic_head() -> str:
     config = Config(str(config_path))
     config.set_main_option("script_location", str(config_path.parent / "alembic"))
     return ScriptDirectory.from_config(config).get_current_head()
+
+
+def _redact_url(value: str) -> str:
+    if not value or "://" not in value:
+        return value
+    scheme, rest = value.split("://", 1)
+    if "@" not in rest:
+        return f"{scheme}://<redacted>"
+    host = rest.rsplit("@", 1)[1]
+    return f"{scheme}://<redacted>@{host}"
