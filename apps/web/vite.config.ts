@@ -4,9 +4,9 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  // The SPA is mounted under /app on Firebase Hosting (the landing page owns "/").
-  // Assets therefore resolve from /app/assets/* both in dev and in the hosted build.
-  base: '/app/',
+  // Vercel serves the SPA at "/". The legacy Firebase hosting command still
+  // mounts the SPA under "/app" after assembling the landing page.
+  base: process.env.npm_lifecycle_event === 'build:hosting' ? '/app/' : '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
