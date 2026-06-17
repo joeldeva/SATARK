@@ -131,7 +131,16 @@ async def generate_seed_survey(request: Dict[str, Any], user: dict = Depends(get
     if len(prompt) < 10:
         raise HTTPException(status_code=400, detail="Prompt must be at least 10 characters")
     start = time.time()
-    generated = _generator.generate(prompt, user_id)
+    try:
+        generated = _generator.generate(prompt, user_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Survey generation assist failed; using deterministic fallback: %s", exc, exc_info=True)
+        from services.prompt_parser import PromptParser
+        from services.rag_engine import RAGEngine
+        from services.rule_engine import RuleEngine
+        from services.survey_generator import SurveyGenerator
+
+        generated = SurveyGenerator(PromptParser(), RAGEngine(), RuleEngine()).generate(prompt, user_id)
     elapsed = round(time.time() - start, 3)
     # Log-only: DO NOT create a Survey row. The draft lives in the FE builderStore
     # until the officer explicitly POSTs /api/surveys or PATCHes one (contract).
