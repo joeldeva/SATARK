@@ -216,13 +216,19 @@ def _default_survey_id(db) -> str:
     rows = (
         db.query(Survey)
         .filter(Survey.status == "published")
-        .order_by(Survey.created_at.desc())
+        .order_by(Survey.published_at.desc().nullslast(), Survey.created_at.desc())
         .all()
     )
-    if rows:
-        latest = rows[0]
+    collectable = [row for row in rows if _survey_node_count(row) >= 3]
+    if collectable:
+        latest = collectable[0]
         companion = _fuller_generated_companion(latest, rows)
         return companion.survey_id if companion else latest.survey_id
+    if rows:
+        raise HTTPException(
+            status_code=409,
+            detail="Published surveys exist, but none have enough questions for channel collection",
+        )
     raise HTTPException(status_code=409, detail="No published survey is available for channel collection")
 
 
@@ -238,7 +244,7 @@ def _fuller_generated_companion(latest, rows):
     if latest_count > 5:
         return None
     prefix = f"{latest.survey_id}-DRAFT-"
-    companions = [row for row in rows if str(row.survey_id).startswith(prefix) and _survey_node_count(row) > latest_count]
+    companions = [row for row in rows if str(row.survey_id).startswith(prefix) and _survey_node_count(row) >= 3 and _survey_node_count(row) > latest_count]
     if not companions:
         return None
     return sorted(
@@ -317,6 +323,7 @@ def _outbound_consent(state: dict[str, Any]) -> dict[str, Any]:
         "type": "consent",
         "channel": state["channel"],
         "session_id": state["session_id"],
+        "survey_id": state["survey_id"],
         "node_id": CONSENT_NODE,
         "prompt_text": dict(CONSENT_PROMPT),
         "input_kind": "choice",
@@ -334,6 +341,7 @@ def _outbound_question(state, node, last_result=None, adaptive=None) -> dict[str
         "type": "question",
         "channel": state["channel"],
         "session_id": state["session_id"],
+        "survey_id": state["survey_id"],
         "node_id": node["id"],
         "prompt_text": _prompt_text(node),
         "input_kind": _input_kind(node),
@@ -353,6 +361,7 @@ def _outbound_clarification(state, node, intelligence, layer) -> dict[str, Any]:
         "type": "clarification",
         "channel": state["channel"],
         "session_id": state["session_id"],
+        "survey_id": state["survey_id"],
         "node_id": node["id"],
         "prompt_text": {
             key: f"{layer['reason']} — {value}" for key, value in _prompt_text(node).items()
@@ -372,6 +381,7 @@ def _outbound_complete(state, intelligence, result) -> dict[str, Any]:
         "type": "complete",
         "channel": state["channel"],
         "session_id": state["session_id"],
+        "survey_id": state["survey_id"],
         "node_id": None,
         "prompt_text": {
             "en": "Thank you. The survey is complete.",

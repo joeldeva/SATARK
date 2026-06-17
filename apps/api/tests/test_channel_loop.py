@@ -310,6 +310,69 @@ def test_whatsapp_default_prefers_full_generated_companion_over_short_shell():
     assert second.json()["payload"]["node_id"] == "draft_1"
 
 
+def test_whatsapp_default_skips_latest_too_short_published_shell():
+    client = _client()
+    db = next(get_db())
+    try:
+        full_id = f"DDI-IND-MOSPI-FULL-{uuid.uuid4().hex[:6].upper()}"
+        shell_id = f"DDI-IND-MOSPI-SHELL-{uuid.uuid4().hex[:6].upper()}"
+        older = datetime.now(timezone.utc) + timedelta(hours=1)
+        newer = older + timedelta(minutes=1)
+
+        full_graph = {
+            "id": full_id,
+            "title": {"en": "Full Generated Survey"},
+            "nodes": [
+                {"id": f"full_{idx}", "type": "text", "q": {"en": f"Generated question {idx}"}}
+                for idx in range(1, 8)
+            ],
+            "branches": {},
+        }
+        shell_graph = {
+            "id": shell_id,
+            "title": {"en": "Too Short Shell"},
+            "nodes": [{"id": "shell_only", "type": "text", "q": {"en": "Placeholder name?"}}],
+            "branches": {},
+        }
+        db.add(
+            Survey(
+                survey_id=full_id,
+                title="Full Generated Survey",
+                domain="test",
+                status="published",
+                survey_data=full_graph,
+                question_graph=full_graph,
+                total_questions=7,
+                created_at=older,
+                published_at=older,
+            )
+        )
+        db.add(
+            Survey(
+                survey_id=shell_id,
+                title="Too Short Shell",
+                domain="test",
+                status="published",
+                survey_data=shell_graph,
+                question_graph=shell_graph,
+                total_questions=1,
+                created_at=newer,
+                published_at=newer,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    ref = f"wa-{uuid.uuid4().hex[:8]}"
+    client.post("/api/v1/channels/whatsapp/webhook", json={"sender": ref, "text": "hi"})
+    second = client.post("/api/v1/channels/whatsapp/webhook", json={"sender": ref, "text": "yes"})
+
+    assert second.status_code == 200, second.text
+    assert second.json()["payload"]["survey_id"] == full_id
+    assert second.json()["payload"]["node_id"] == "full_1"
+
+
 def test_whatsapp_clarification_correction_completes_and_persists():
     client = _client()
     ref = f"wa-{uuid.uuid4().hex[:8]}"

@@ -21,7 +21,7 @@ class SurveyGenerator:
         self.llm_planner = llm_planner
 
     def generate(self, prompt: str, user_id: str = None) -> Dict:
-        intent = self.llm_planner.plan(prompt) if self.llm_planner else self.parser.parse(prompt)
+        intent = self._plan_intent(prompt)
         target_count = intent.num_questions or 10
 
         mandatory = self.rules.add_mandatory_questions(intent.domain)
@@ -36,6 +36,7 @@ class SurveyGenerator:
         )
 
         questions = self._combine(mandatory, draft_questions, retrieved, target_count)
+        questions = self._fill_missing_questions(questions, intent, target_count)
         questions = self.rules.apply_question_ordering(questions)
         questions = [self.rules.add_validation_rules(question, intent.domain) for question in questions]
         logic = self.rules.generate_skip_logic(questions, intent.domain)
@@ -45,6 +46,21 @@ class SurveyGenerator:
         return survey
 
     _LLM_PLANNERS = ("local_llm", "openrouter")
+
+    def _plan_intent(self, prompt: str) -> ParsedIntent:
+        if not self.llm_planner:
+            return self.parser.parse(prompt)
+        try:
+            return self.llm_planner.plan(prompt)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("LLM planner failed; using deterministic survey generation fallback: %s", exc)
+            intent = self.parser.parse(prompt)
+            intent.planner = "deterministic_fallback"
+            intent.planner_model = getattr(self.llm_planner, "model", None)
+            intent.planner_confidence = 70
+            intent.planner_reason = "LLM assist was unavailable; SATARK generated this draft with deterministic rules."
+            intent.assist_framework = "deterministic_fallback_no_model_output"
+            return intent
 
     def _llm_draft_questions(self, intent: ParsedIntent) -> List[Dict]:
         if intent.planner not in self._LLM_PLANNERS:
@@ -69,6 +85,78 @@ class SurveyGenerator:
                 seen_texts.add(text_key)
 
         return combined
+
+    def _fill_missing_questions(self, questions: List[Dict], intent: ParsedIntent, target_count: int) -> List[Dict]:
+        if len(questions) >= target_count:
+            return questions
+
+        generated = list(questions)
+        seen_ids = {question["id"] for question in generated}
+        templates = self._fallback_templates(intent)
+        for template in templates:
+            if len(generated) >= target_count:
+                break
+            if template["id"] in seen_ids:
+                continue
+            generated.append(template)
+            seen_ids.add(template["id"])
+        return generated
+
+    def _fallback_templates(self, intent: ParsedIntent) -> List[Dict]:
+        domain = intent.domain or "household"
+        topics = intent.topics or []
+        location = intent.location_type or "survey area"
+        topic_text = ", ".join(topics[:3]) or domain
+        base = [
+            ("fb_dem_name", "What is the full name of the primary respondent?", "text", "demographic", ["name"]),
+            ("fb_dem_age", "What is the respondent's age?", "number", "demographic", ["age"]),
+            ("fb_dem_gender", "What is the respondent's gender?", "single_choice", "demographic", ["gender"]),
+            ("fb_household_size", "How many usual members live in this household?", "number", "core", ["household"]),
+            ("fb_location", f"Which district or locality in the {location} is this household located in?", "text", "core", ["location"]),
+            ("fb_occupation", "What is the respondent's main occupation or current work status?", "single_choice", "core", ["occupation", "employment"]),
+            ("fb_income", "What was the household's approximate monthly income last month?", "number", "sensitive", ["income"]),
+            ("fb_education", "What is the highest level of education completed by the respondent?", "single_choice", "core", ["education"]),
+            ("fb_migration", "Has any household member migrated for work or study in the last 12 months?", "single_choice", "social", ["migration"]),
+            ("fb_assets", "Does the household own any major productive assets or durable goods?", "single_choice", "core", ["assets"]),
+            ("fb_verification", "Can the enumerator verify the response using household records or observation?", "single_choice", "follow_up", ["validation"]),
+            ("fb_topic", f"What is the household's main issue or experience related to {topic_text}?", "text", "core", topics[:4] or [domain]),
+        ]
+        questions = []
+        for qid, text, question_type, category, tags in base:
+            options = []
+            if question_type == "single_choice":
+                options = self._default_options(qid)
+            validation = {}
+            if question_type == "number":
+                validation = {"type": "range", "min": 0, "max": 120 if "age" in tags else 10000000}
+            questions.append({
+                "id": qid,
+                "domain": domain,
+                "subdomain": "deterministic_fallback",
+                "text": text,
+                "type": question_type,
+                "category": category,
+                "tags": tags,
+                "options": options,
+                "validation": validation,
+                "required": category in {"demographic", "core"},
+                "routing": None,
+                "standard_code": "NCO" if "occupation" in tags else None,
+                "source": "satark_deterministic_fallback",
+                "audience": intent.audience,
+            })
+        return questions
+
+    def _default_options(self, qid: str) -> List[Dict]:
+        options = {
+            "fb_dem_gender": ["Male", "Female", "Other", "Prefer not to say"],
+            "fb_occupation": ["Salaried", "Self-employed", "Farmer", "Unemployed", "Student", "Other"],
+            "fb_education": ["No formal education", "Primary", "Secondary", "Higher secondary", "Graduate and above"],
+            "fb_migration": ["Yes", "No"],
+            "fb_assets": ["Yes", "No"],
+            "fb_verification": ["Verified", "Partially verified", "Not verified"],
+        }.get(qid, ["Yes", "No"])
+        return [{"value": option.lower().replace(" ", "_"), "label": option} for option in options]
 
     def _package(self, questions: List[Dict], logic: List[Dict], intent: ParsedIntent, prompt: str, user_id: str) -> Dict:
         survey_id = str(uuid4())
