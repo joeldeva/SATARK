@@ -62,7 +62,7 @@ async def lifespan(app: FastAPI):
                 raise RuntimeError("LLM_PROVIDER=openrouter requires OPENROUTER_API_KEY")
             logger.warning("OpenRouter key missing; survey assist will use deterministic fallback")
         else:
-            openrouter_timeout = min(settings.LLM_TIMEOUT_SECONDS, 12)
+            openrouter_timeout = min(settings.LLM_TIMEOUT_SECONDS, 6)
             llm_planner = OpenRouterPlanner(
                 model=settings.OPENROUTER_MODEL,
                 api_key=settings.OPENROUTER_API_KEY,

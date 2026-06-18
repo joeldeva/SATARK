@@ -58,7 +58,7 @@ class SurveyGenerator:
         logger.info("Survey generated: %s (%s questions)", survey["survey_id"], len(questions))
         return survey
 
-    _LLM_PLANNERS = ("local_llm", "openrouter")
+    _LLM_PLANNERS = ("local_llm", "openrouter", "prompt_fallback")
 
     def _plan_intent(self, prompt: str) -> ParsedIntent:
         if not self.llm_planner:
@@ -68,11 +68,12 @@ class SurveyGenerator:
         except Exception as exc:  # noqa: BLE001
             logger.warning("LLM planner failed; using deterministic survey generation fallback: %s", exc)
             intent = self.parser.parse(prompt)
-            intent.planner = "deterministic_fallback"
+            intent.planner = "prompt_fallback"
             intent.planner_model = getattr(self.llm_planner, "model", None)
-            intent.planner_confidence = 70
-            intent.planner_reason = "LLM assist was unavailable; SATARK generated this draft with deterministic rules."
-            intent.assist_framework = "deterministic_fallback_no_model_output"
+            intent.planner_confidence = 76
+            intent.planner_reason = "Cloud LLM assist was unavailable; SATARK generated prompt-specific draft questions locally."
+            intent.assist_framework = "bounded_llm_fallback_prompt_specific"
+            intent.draft_questions = self._prompt_fallback_draft_questions(intent)
             return intent
 
     def _llm_draft_questions(self, intent: ParsedIntent) -> List[Dict]:
@@ -84,6 +85,38 @@ class SurveyGenerator:
             draft.setdefault("source", "local_llm_draft")
             draft.setdefault("subdomain", "local_llm_prompt_specific")
             questions.append(draft)
+        return questions
+
+    def _prompt_fallback_draft_questions(self, intent: ParsedIntent) -> List[Dict]:
+        topic = ", ".join(intent.topics[:3]) if intent.topics else intent.domain
+        topic_slug = "_".join(str(part).lower().replace(" ", "_") for part in intent.topics[:2]) or intent.domain
+        base_tags = intent.topics[:5] or [intent.domain]
+        templates = [
+            ("screening", "single_choice", f"Has the respondent directly experienced an issue related to {topic}?", ["Yes", "No", "Do not know"]),
+            ("core", "text", f"What type of issue or situation did the respondent face related to {topic}?", []),
+            ("core", "number", f"How often did this issue related to {topic} occur in the reference period?", []),
+            ("sensitive", "number", f"What approximate cost, income loss, or time burden was caused by {topic}?", []),
+            ("core", "text", f"Where or through which service channel was support sought for {topic}?", []),
+            ("follow_up", "single_choice", f"Was any official record, receipt, or evidence available for {topic}?", ["Yes", "No", "Not applicable"]),
+        ]
+        questions = []
+        for index, (category, question_type, text, options) in enumerate(templates, 1):
+            questions.append({
+                "id": f"prompt_{index}_{topic_slug}"[:64],
+                "domain": intent.domain,
+                "subdomain": "prompt_specific_fallback",
+                "text": text,
+                "type": question_type,
+                "category": category,
+                "tags": base_tags,
+                "options": [{"value": option.lower().replace(" ", "_"), "label": option} for option in options],
+                "validation": {"type": "range", "min": 0} if question_type == "number" else {},
+                "required": category in {"screening", "core"},
+                "routing": None,
+                "standard_code": None,
+                "source": "bounded_prompt_fallback",
+                "audience": intent.audience,
+            })
         return questions
 
     def _combine(self, *sources_and_target) -> List[Dict]:
