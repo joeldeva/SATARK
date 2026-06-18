@@ -17,13 +17,13 @@ services:
       - key: REDIS_URL
         sync: false
       - key: LLM_PROVIDER
-        value: none
+        value: openrouter
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
-        value: nex-agi/nex-n2-pro:free
+        value: google/gemma-4-26b-a4b-it:free
       - key: LLM_REQUIRED
-        value: "false"
+        value: "true"
       - key: VECTOR_STORE
         value: postgres
       - key: CHROMA_URL

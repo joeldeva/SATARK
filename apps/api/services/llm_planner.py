@@ -307,6 +307,8 @@ class OpenRouterPlanner(LocalLLMPlanner):
         request_body = {
             "model": self.model,
             "temperature": 0.1,
+            "max_tokens": 1800,
+            "response_format": {"type": "json_object"},
             "messages": [
                 {
                     "role": "system",

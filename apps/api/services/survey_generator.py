@@ -58,30 +58,12 @@ class SurveyGenerator:
         logger.info("Survey generated: %s (%s questions)", survey["survey_id"], len(questions))
         return survey
 
-    _LLM_PLANNERS = ("local_llm", "openrouter", "prompt_fallback")
+    _LLM_PLANNERS = ("local_llm", "openrouter")
 
     def _plan_intent(self, prompt: str) -> ParsedIntent:
         if not self.llm_planner:
-            intent = self.parser.parse(prompt)
-            intent.planner = "prompt_fallback"
-            intent.planner_model = None
-            intent.planner_confidence = 76
-            intent.planner_reason = "SATARK generated prompt-specific draft questions locally."
-            intent.assist_framework = "bounded_prompt_specific_no_external_llm"
-            intent.draft_questions = self._prompt_fallback_draft_questions(intent)
-            return intent
-        try:
-            return self.llm_planner.plan(prompt)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("LLM planner failed; using deterministic survey generation fallback: %s", exc)
-            intent = self.parser.parse(prompt)
-            intent.planner = "prompt_fallback"
-            intent.planner_model = getattr(self.llm_planner, "model", None)
-            intent.planner_confidence = 76
-            intent.planner_reason = "Cloud LLM assist was unavailable; SATARK generated prompt-specific draft questions locally."
-            intent.assist_framework = "bounded_llm_fallback_prompt_specific"
-            intent.draft_questions = self._prompt_fallback_draft_questions(intent)
-            return intent
+            return self.parser.parse(prompt)
+        return self.llm_planner.plan(prompt)
 
     def _llm_draft_questions(self, intent: ParsedIntent) -> List[Dict]:
         if intent.planner not in self._LLM_PLANNERS:

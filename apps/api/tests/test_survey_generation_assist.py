@@ -1,4 +1,5 @@
 from pathlib import Path
+import pytest
 
 from services.prompt_parser import ParsedIntent
 from services.prompt_parser import PromptParser
@@ -66,20 +67,16 @@ class FailingPlanner:
         raise RuntimeError("provider unavailable")
 
 
-def test_generation_falls_back_to_full_draft_when_llm_fails():
+def test_generation_surfaces_provider_error_when_llm_fails():
     data_path = Path(__file__).resolve().parents[3] / "data"
     kb = KnowledgeBaseLoader(base_path=str(data_path)).load_all()
     generator = SurveyGenerator(PromptParser(), SimpleRAG(kb), RuleEngine(kb), llm_planner=FailingPlanner())
 
-    survey = generator.generate(
-        "Generate a household employment survey for Tamil Nadu with income, migration, assets and validation. Make 12 questions.",
-        "sdrd",
-    )
-
-    assert len(survey["questions"]) >= 10
-    assert survey["metadata"]["llm"]["provider"] == "none"
-    assert survey["metadata"]["llm"]["model"] == "free-model"
-    assert survey["metadata"]["assist"]["is_verdict"] is False
+    with pytest.raises(RuntimeError, match="provider unavailable"):
+        generator.generate(
+            "Generate a household employment survey for Tamil Nadu with income, migration, assets and validation. Make 12 questions.",
+            "sdrd",
+        )
 
 
 class KeyboardPlanner:

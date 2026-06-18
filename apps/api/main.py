@@ -57,14 +57,10 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Local LLM planner enabled: %s via %s", settings.LLM_MODEL, settings.OLLAMA_BASE_URL)
     elif provider == "openrouter":
-        if not settings.LLM_REQUIRED:
-            logger.warning("OpenRouter is optional; using bounded prompt-specific fallback for production reliability")
-        elif not settings.OPENROUTER_API_KEY:
-            if settings.LLM_REQUIRED:
-                raise RuntimeError("LLM_PROVIDER=openrouter requires OPENROUTER_API_KEY")
-            logger.warning("OpenRouter key missing; survey assist will use deterministic fallback")
+        if not settings.OPENROUTER_API_KEY:
+            raise RuntimeError("LLM_PROVIDER=openrouter requires OPENROUTER_API_KEY")
         else:
-            openrouter_timeout = min(settings.LLM_TIMEOUT_SECONDS, 6)
+            openrouter_timeout = min(settings.LLM_TIMEOUT_SECONDS, 45)
             llm_planner = OpenRouterPlanner(
                 model=settings.OPENROUTER_MODEL,
                 api_key=settings.OPENROUTER_API_KEY,
