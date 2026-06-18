@@ -62,7 +62,14 @@ class SurveyGenerator:
 
     def _plan_intent(self, prompt: str) -> ParsedIntent:
         if not self.llm_planner:
-            return self.parser.parse(prompt)
+            intent = self.parser.parse(prompt)
+            intent.planner = "prompt_fallback"
+            intent.planner_model = None
+            intent.planner_confidence = 76
+            intent.planner_reason = "SATARK generated prompt-specific draft questions locally."
+            intent.assist_framework = "bounded_prompt_specific_no_external_llm"
+            intent.draft_questions = self._prompt_fallback_draft_questions(intent)
+            return intent
         try:
             return self.llm_planner.plan(prompt)
         except Exception as exc:  # noqa: BLE001

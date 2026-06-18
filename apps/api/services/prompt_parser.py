@@ -89,7 +89,8 @@ class PromptParser:
     def _extract_topics(self, prompt: str) -> List[str]:
         stopwords = {
             "with", "about", "that", "this", "from", "have", "will", "survey",
-            "questions", "items", "queries", "for", "and", "the", "are", "their",
+            "question", "questions", "items", "queries", "for", "and", "the", "are", "their",
+            "build", "create", "design", "make", "need", "please", "ask", "asks",
         }
         words = re.findall(r"\b[a-z]{4,}\b", prompt.lower())
         topics = []
