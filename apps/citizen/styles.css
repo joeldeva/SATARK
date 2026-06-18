@@ -664,6 +664,44 @@ body {
   background: #F0F0F5;
 }
 
+.app-status {
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin: 14px 0 18px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.35;
+  border: 1px solid var(--border);
+}
+
+.app-status.loading {
+  color: #1B3A4B;
+  background: #EEF5FF;
+  border-color: #BFD7FF;
+}
+
+.app-status.ok {
+  color: #0B6B45;
+  background: #E8F8EF;
+  border-color: #A8E5C4;
+}
+
+.app-status.error {
+  color: #B42318;
+  background: #FFF1F0;
+  border-color: #FFB4AB;
+}
+
+.empty-state {
+  color: var(--text-muted);
+  background: #FAFAFA;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  padding: 22px 16px;
+  text-align: center;
+  line-height: 1.4;
+}
+
 /* ============================================================
    LIVE SURVEY MODAL
    ============================================================ */

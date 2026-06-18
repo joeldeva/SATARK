@@ -62,8 +62,8 @@ async def lifespan(app: FastAPI):
         else:
             openrouter_timeout = min(settings.LLM_TIMEOUT_SECONDS, 45)
             openrouter_model = settings.OPENROUTER_MODEL
-            if openrouter_model == "nex-agi/nex-n2-pro:free":
-                openrouter_model = "google/gemma-4-26b-a4b-it:free"
+            if openrouter_model in {"nex-agi/nex-n2-pro:free", "google/gemma-4-26b-a4b-it:free"}:
+                openrouter_model = "google/gemma-4-31b-it:free"
             llm_planner = OpenRouterPlanner(
                 model=openrouter_model,
                 api_key=settings.OPENROUTER_API_KEY,

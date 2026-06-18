@@ -300,7 +300,7 @@ class OpenRouterPlanner(LocalLLMPlanner):
             return self._normalize(payload, prompt)
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(
-                f"OpenRouter planner failed for model '{self.model}'. Check OPENROUTER_API_KEY and connectivity."
+                f"OpenRouter planner failed for model '{self.model}': {exc}"
             ) from exc
 
     def _call_openrouter(self, prompt: str) -> str:

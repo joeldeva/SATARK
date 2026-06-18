@@ -21,7 +21,7 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
-        value: google/gemma-4-26b-a4b-it:free
+        value: google/gemma-4-31b-it:free
       - key: LLM_REQUIRED
         value: "true"
       - key: VECTOR_STORE
