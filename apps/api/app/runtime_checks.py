@@ -73,12 +73,15 @@ def check_llm() -> dict[str, Any]:
         configured = bool(settings.OPENROUTER_API_KEY)
         if settings.LLM_REQUIRED and not configured:
             raise RuntimeCheckError("OPENROUTER_API_KEY is required when LLM_PROVIDER=openrouter")
+        model = settings.OPENROUTER_MODEL
+        if model in {"nex-agi/nex-n2-pro:free", "google/gemma-4-26b-a4b-it:free"}:
+            model = "google/gemma-4-31b-it:free"
         return {
             "ok": True,
             "provider": "openrouter",
             "required": settings.LLM_REQUIRED,
             "configured": configured,
-            "model": settings.OPENROUTER_MODEL,
+            "model": model,
         }
 
     if provider == "ollama":
