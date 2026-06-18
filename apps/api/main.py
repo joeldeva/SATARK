@@ -3,7 +3,7 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -115,6 +115,27 @@ app.include_router(rag_router, prefix="/api")
 app.include_router(event_router, prefix="/api")
 app.include_router(channel_router, prefix="/api/v1")
 app.include_router(whatsapp_router, prefix="/api")
+
+
+@app.options("/{full_path:path}")
+async def options_preflight(full_path: str, request: Request):
+    origin = request.headers.get("origin")
+    allowed_origins = settings.cors_origins
+    allow_origin = origin if origin in allowed_origins else (allowed_origins[0] if allowed_origins else "*")
+    return Response(
+        status_code=204,
+        headers={
+            "Access-Control-Allow-Origin": allow_origin,
+            "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+            "Access-Control-Allow-Headers": request.headers.get(
+                "access-control-request-headers",
+                "authorization,content-type",
+            ),
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "86400",
+            "Vary": "Origin",
+        },
+    )
 
 
 @app.get("/")

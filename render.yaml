@@ -31,7 +31,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: https://sat-full-one.vercel.app,http://localhost:3001,http://127.0.0.1:3001
+        value: https://sat-full-one.vercel.app,http://localhost:3001,http://127.0.0.1:3001,https://localhost,capacitor://localhost
       - key: WHATSAPP_PROVIDER
         value: meta
       - key: WHATSAPP_VERIFY_TOKEN
