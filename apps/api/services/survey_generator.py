@@ -85,7 +85,26 @@ class SurveyGenerator:
             draft.setdefault("source", "local_llm_draft")
             draft.setdefault("subdomain", "local_llm_prompt_specific")
             questions.append(draft)
+        filtered = self._filter_prompt_specific_drafts(questions, intent)
+        if filtered:
+            return filtered
+        if self._core_subject_topics(intent):
+            return self._prompt_fallback_draft_questions(intent)
         return questions
+
+    def _filter_prompt_specific_drafts(self, questions: List[Dict], intent: ParsedIntent) -> List[Dict]:
+        core_subject_topics = self._core_subject_topics(intent)
+        if not core_subject_topics:
+            return questions
+        relevant = []
+        for question in questions:
+            text = str(question.get("text") or "").lower()
+            tags = {str(tag).lower() for tag in question.get("tags", [])}
+            is_generic = self._is_generic_demographic(text, tags)
+            topic_hit = bool(core_subject_topics & tags or any(topic in text for topic in core_subject_topics))
+            if topic_hit and not is_generic:
+                relevant.append(question)
+        return relevant
 
     def _prompt_fallback_draft_questions(self, intent: ParsedIntent) -> List[Dict]:
         topic = ", ".join(intent.topics[:3]) if intent.topics else intent.domain
@@ -142,24 +161,15 @@ class SurveyGenerator:
         if target_count <= 0:
             return []
         topics = {topic.lower() for topic in intent.topics or [] if len(topic) > 2}
-        weak_topics = {
-            "cost", "issue", "issues", "frequency", "satisfaction", "validation", "survey",
-            "question", "questions", "household", "income", "amount", "type", "yes", "no",
-            "service", "centre", "center", "repair", "repairs", "used",
-        }
-        location_topics = {
-            "chennai", "tamil", "nadu", "india", "urban", "rural", "district", "state", "area",
-        }
-        distinctive_topics = {topic for topic in topics if topic not in weak_topics and len(topic) > 4}
-        core_subject_topics = distinctive_topics - location_topics
-        generic_tags = {"age", "gender", "marital", "education", "name", "demographic"}
+        core_subject_topics = self._core_subject_topics(intent)
+        distinctive_topics = self._distinctive_topics(intent)
         relevant = []
 
         for question in questions:
             text = str(question.get("text") or "").lower()
             raw_tags = {str(tag).lower() for tag in question.get("tags", [])}
             tags = raw_tags - topics if "uploaded_source" in raw_tags else raw_tags
-            is_generic = bool(tags & generic_tags) or any(word in text for word in ["age", "gender", "marital status", "education"])
+            is_generic = self._is_generic_demographic(text, tags)
             if core_subject_topics:
                 strong_hit = bool(core_subject_topics & tags or any(topic in text for topic in core_subject_topics))
             else:
@@ -170,6 +180,27 @@ class SurveyGenerator:
                 relevant.append(question)
 
         return relevant[:target_count]
+
+    def _distinctive_topics(self, intent: ParsedIntent) -> set[str]:
+        topics = {topic.lower() for topic in intent.topics or [] if len(topic) > 2}
+        weak_topics = {
+            "cost", "issue", "issues", "frequency", "satisfaction", "validation", "survey",
+            "question", "questions", "household", "income", "amount", "type", "yes", "no",
+            "service", "centre", "center", "repair", "repairs", "used",
+        }
+        return {topic for topic in topics if topic not in weak_topics and len(topic) > 4}
+
+    def _core_subject_topics(self, intent: ParsedIntent) -> set[str]:
+        location_topics = {
+            "chennai", "tamil", "nadu", "india", "urban", "rural", "district", "state", "area",
+        }
+        return self._distinctive_topics(intent) - location_topics
+
+    def _is_generic_demographic(self, text: str, tags: set[str]) -> bool:
+        generic_tags = {"age", "gender", "marital", "education", "name", "demographic"}
+        return bool(tags & generic_tags) or any(
+            word in text for word in ["age", "gender", "marital status", "education"]
+        )
 
     def _fill_missing_questions(self, questions: List[Dict], intent: ParsedIntent, target_count: int, topic_first: bool = False) -> List[Dict]:
         if len(questions) >= target_count:
