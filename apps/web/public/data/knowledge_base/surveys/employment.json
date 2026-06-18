@@ -1,0 +1,106 @@
+{
+  "domain": "employment",
+  "source": "PLFS - Periodic Labour Force Survey (NSS)",
+  "questions": [
+    {
+      "id": "emp_001", "text": "What is your current employment status?",
+      "type": "single_choice", "category": "core",
+      "tags": ["employment", "status", "core"],
+      "options": [
+        {"value": "1", "label": "Self-employed"},
+        {"value": "2", "label": "Regular salaried/wage employee"},
+        {"value": "3", "label": "Casual wage labour"},
+        {"value": "4", "label": "Unemployed - seeking work"},
+        {"value": "5", "label": "Not in labour force"}
+      ]
+    },
+    {
+      "id": "emp_002", "text": "What is your primary occupation?",
+      "type": "text", "category": "core",
+      "tags": ["occupation", "nco", "core"],
+      "standard_code": "NCO-2015"
+    },
+    {
+      "id": "emp_003", "text": "What is your monthly income from primary occupation (in Rs.)?",
+      "type": "number", "category": "core",
+      "tags": ["income", "wage", "core"],
+      "validation": {"min": 0, "max": 1000000, "type": "range"}
+    },
+    {
+      "id": "emp_004", "text": "How many days did you work in the last 7 days?",
+      "type": "number", "category": "core",
+      "tags": ["work_days", "employment", "core"],
+      "validation": {"min": 0, "max": 7, "type": "range"}
+    },
+    {
+      "id": "emp_005", "text": "What is the industry/sector of your work?",
+      "type": "single_choice", "category": "core",
+      "tags": ["industry", "nic", "sector"],
+      "options": [
+        {"value": "A", "label": "Agriculture, Forestry & Fishing"},
+        {"value": "C", "label": "Manufacturing"},
+        {"value": "F", "label": "Construction"},
+        {"value": "G", "label": "Trade & Repair"},
+        {"value": "O", "label": "Public Administration"},
+        {"value": "P", "label": "Education"},
+        {"value": "Q", "label": "Health & Social Work"},
+        {"value": "Z", "label": "Other"}
+      ],
+      "standard_code": "NIC-2008"
+    },
+    {
+      "id": "emp_006", "text": "Are you covered under any social security scheme?",
+      "type": "multiple_choice", "category": "core",
+      "tags": ["social_security", "benefits"],
+      "options": [
+        {"value": "1", "label": "EPF/EPFO"},
+        {"value": "2", "label": "ESI"},
+        {"value": "3", "label": "NPS"},
+        {"value": "4", "label": "PM-SYM"},
+        {"value": "5", "label": "None"}
+      ]
+    },
+    {
+      "id": "emp_007", "text": "What is your highest level of education?",
+      "type": "single_choice", "category": "demographic",
+      "tags": ["education", "demographic"],
+      "options": [
+        {"value": "1", "label": "Not literate"},
+        {"value": "2", "label": "Literate - below primary"},
+        {"value": "3", "label": "Primary"},
+        {"value": "4", "label": "Middle"},
+        {"value": "5", "label": "Secondary"},
+        {"value": "6", "label": "Higher secondary"},
+        {"value": "7", "label": "Graduate and above"}
+      ]
+    },
+    {
+      "id": "emp_008", "text": "What is your age?",
+      "type": "number", "category": "demographic",
+      "tags": ["age", "demographic"],
+      "validation": {"min": 15, "max": 80, "type": "range"},
+      "required": true
+    },
+    {
+      "id": "emp_009", "text": "What is your gender?",
+      "type": "single_choice", "category": "demographic",
+      "tags": ["gender", "demographic"],
+      "options": [
+        {"value": "1", "label": "Male"},
+        {"value": "2", "label": "Female"},
+        {"value": "3", "label": "Third gender"}
+      ],
+      "required": true
+    },
+    {
+      "id": "emp_010", "text": "What type of area do you live in?",
+      "type": "single_choice", "category": "demographic",
+      "tags": ["location", "rural", "urban", "demographic"],
+      "options": [
+        {"value": "1", "label": "Rural"},
+        {"value": "2", "label": "Urban"}
+      ],
+      "required": true
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 from pathlib import Path
@@ -43,6 +44,7 @@ def seed_core_data(db, project_root: Path) -> None:
     _seed_reference_data(db, seed)
     _seed_validation_rules(db, seed)
     _seed_codes(db, seed)
+    _seed_classification_csvs(db, project_root)
     _seed_survey_graph(db, seed)
     db.flush()  # ensure surveys row exists before adaptive_logic FKs it
     _seed_adaptive_logic(db, seed)
@@ -208,6 +210,98 @@ def _seed_codes(db, seed: dict) -> None:
                 setattr(row, key, value)
         else:
             db.add(ClassificationCode(code=code["code"], code_type=code["type"], **values))
+
+
+def _read_classification_csv(project_root: Path, filename: str) -> list[dict[str, str]]:
+    path = project_root / "database" / "database" / filename
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _code_synonyms(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split("|") if item.strip()]
+
+
+def _upsert_classification_code(db, code: str, code_type: str, values: dict) -> None:
+    row = (
+        db.query(ClassificationCode)
+        .filter(ClassificationCode.code == code, ClassificationCode.code_type == code_type)
+        .first()
+    )
+    if row:
+        for key, value in values.items():
+            setattr(row, key, value)
+    else:
+        db.add(ClassificationCode(code=code, code_type=code_type, **values))
+
+
+def _seed_classification_csvs(db, project_root: Path) -> None:
+    """Load official NIC, NCO/NOC, and LGD code CSVs into the SDRD code database."""
+    for row in _read_classification_csv(project_root, "nco_parsed.csv"):
+        code = (row.get("code") or "").strip()
+        if not code:
+            continue
+        _upsert_classification_code(db, code, "NCO", {
+            "label": (row.get("label") or "").strip(),
+            "synonyms": _code_synonyms(row.get("synonyms")),
+            "external_source": "NCO-2015",
+            "family": (row.get("family") or "").strip() or None,
+            "sector": (row.get("sector") or "").strip() or None,
+            "level": None,
+            "section": None,
+            "parent_code": None,
+        })
+
+    for row in _read_classification_csv(project_root, "nic_parsed.csv"):
+        code = (row.get("code") or "").strip()
+        if not code:
+            continue
+        _upsert_classification_code(db, code, "NIC", {
+            "label": (row.get("label") or "").strip(),
+            "synonyms": _code_synonyms(row.get("synonyms")),
+            "external_source": "NIC-2008",
+            "family": None,
+            "sector": None,
+            "level": (row.get("level") or "").strip() or None,
+            "section": (row.get("section") or "").strip() or None,
+            "parent_code": (row.get("division") or "").strip() or None,
+        })
+
+    for row in _read_classification_csv(project_root, "lgd_parsed.csv"):
+        code = (row.get("lgd_code") or "").strip()
+        if not code:
+            continue
+        name = (row.get("name_en") or "").strip()
+        name_local = (row.get("name_local") or "").strip()
+        _upsert_classification_code(db, code, "LGD", {
+            "label": name,
+            "synonyms": [name_local] if name_local and name_local != name else [],
+            "external_source": "LGD",
+            "family": (row.get("state_or_ut") or "").strip() or None,
+            "sector": None,
+            "level": "state",
+            "section": None,
+            "parent_code": None,
+        })
+
+    for row in _read_classification_csv(project_root, "districts_parsed.csv"):
+        code = (row.get("district_lgd") or "").strip()
+        if not code:
+            continue
+        _upsert_classification_code(db, code, "LGD_DISTRICT", {
+            "label": (row.get("district_name") or "").strip(),
+            "synonyms": [],
+            "external_source": "LGD",
+            "family": None,
+            "sector": None,
+            "level": "district",
+            "section": None,
+            "parent_code": (row.get("state_code") or "").strip() or None,
+        })
 
 
 def _seed_survey_graph(db, seed: dict) -> None:

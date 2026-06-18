@@ -6,8 +6,9 @@
 import React, { useState, useEffect } from 'react';
 import { api, db } from '../api';
 import { Question, Survey, ValidationRule, QuestionType, ClassificationCode } from '../types';
-import { INITIAL_QUESTION_BANK, CLASSIFICATION_CODES } from '../mockData';
+import { INITIAL_QUESTION_BANK, CLASSIFICATION_CODES, PINCODE_LOCATIONS } from '../mockData';
 import { translations } from '../i18n';
+import { CollectionClient } from './CollectionClient';
 import { 
   Home, 
   Edit3, 
@@ -50,7 +51,8 @@ import {
   Repeat2,
   MoreHorizontal,
   Workflow,
-  Move
+  Move,
+  Download
 } from 'lucide-react';
 
 interface SDRDWorkspaceProps {
@@ -69,6 +71,32 @@ const buildDdiDraftId = (title: string) => {
 };
 
 const OFFICIAL_LANGUAGES = [
+  { code: 'en', label: 'English', prompt: 'English' },
+  { code: 'as', label: 'Assamese (অসমীয়া)', prompt: 'Assamese' },
+  { code: 'bn', label: 'Bengali (বাংলা)', prompt: 'Bengali' },
+  { code: 'brx', label: 'Bodo (बड़ो)', prompt: 'Bodo' },
+  { code: 'doi', label: 'Dogri (डोगरी)', prompt: 'Dogri' },
+  { code: 'gu', label: 'Gujarati (ગુજરાતી)', prompt: 'Gujarati' },
+  { code: 'hi', label: 'Hindi (हिंदी)', prompt: 'Hindi' },
+  { code: 'kn', label: 'Kannada (ಕನ್ನಡ)', prompt: 'Kannada' },
+  { code: 'ks', label: 'Kashmiri (کأشُر)', prompt: 'Kashmiri' },
+  { code: 'kok', label: 'Konkani (कोंकणी)', prompt: 'Konkani' },
+  { code: 'mai', label: 'Maithili (মৈথিলি)', prompt: 'Maithili' },
+  { code: 'ml', label: 'Malayalam (മലയാളം)', prompt: 'Malayalam' },
+  { code: 'mni', label: 'Manipuri (মৈতৈলোন্)', prompt: 'Manipuri' },
+  { code: 'mr', label: 'Marathi (मराठी)', prompt: 'Marathi' },
+  { code: 'ne', label: 'Nepali (नेपाली)', prompt: 'Nepali' },
+  { code: 'or', label: 'Odia (ଓଡ଼ିଆ)', prompt: 'Odia' },
+  { code: 'pa', label: 'Punjabi (ਪੰਜਾਬੀ)', prompt: 'Punjabi' },
+  { code: 'sa', label: 'Sanskrit (संस्कृतम्)', prompt: 'Sanskrit' },
+  { code: 'sat', label: 'Santali (ᱥᱟᱱᱛᱟᱲᱤ)', prompt: 'Santali' },
+  { code: 'sd', label: 'Sindhi (سنڌي)', prompt: 'Sindhi' },
+  { code: 'ta', label: 'Tamil (தமிழ்)', prompt: 'Tamil' },
+  { code: 'te', label: 'Telugu (తెలుగు)', prompt: 'Telugu' },
+  { code: 'ur', label: 'Urdu (اردو)', prompt: 'Urdu' },
+];
+
+const LEGACY_OFFICIAL_LANGUAGES = [
   { code: 'en', label: 'English', prompt: 'English' },
   { code: 'hi', label: 'हिन्दी', prompt: 'Hindi' },
   { code: 'ta', label: 'தமிழ்', prompt: 'Tamil' },
@@ -92,6 +120,122 @@ const OFFICIAL_LANGUAGES = [
   { code: 'sat', label: 'Santali', prompt: 'Santali' },
   { code: 'ks', label: 'Kashmiri', prompt: 'Kashmiri' },
 ];
+
+type KnowledgeQuestionChunk = {
+  survey: string;
+  section: string;
+  source: string;
+  questions: Array<{
+    question_id: string;
+    question_text: string;
+    answer_type: string;
+    options: string[];
+    required: boolean;
+    purpose: string;
+    standard_code?: string;
+    tags?: string[];
+    raw?: any;
+  }>;
+};
+
+const questionTypeFromKnowledge = (type?: string): QuestionType => {
+  if (type === 'single_choice' || type === 'single') return 'single';
+  if (type === 'multiple_choice' || type === 'multi') return 'multi';
+  if (type === 'number') return 'number';
+  if (type === 'date') return 'date';
+  return 'text';
+};
+
+const textFromKnowledge = (value: any, langCode: string = 'en') => {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') return value[langCode] || value.en || Object.values(value)[0] || '';
+  return '';
+};
+
+const optionsFromKnowledge = (options: any[] = []) => options
+  .map((option) => textFromKnowledge(option?.label ?? option?.text ?? option?.value ?? option))
+  .filter(Boolean);
+
+const normalizeKnowledgeChunk = (question: any, context: { survey: string; section?: string; source: string }): KnowledgeQuestionChunk => {
+  const section = question.subdomain || question.category || question.block || context.section || question.domain || 'Questionnaire';
+  const questionText = textFromKnowledge(question.text ?? question.question_text ?? question.label);
+  const validation = question.validation || {};
+  return {
+    survey: context.survey,
+    section,
+    source: context.source,
+    questions: [
+      {
+        question_id: question.id || question.question_id || question.code || question.standard_code || `KB_${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+        question_text: questionText,
+        answer_type: question.type || question.answer_type || 'text',
+        options: optionsFromKnowledge(question.options),
+        required: Boolean(validation.required || question.required),
+        purpose: question.purpose || question.category || question.domain || section,
+        standard_code: question.standard_code,
+        tags: question.tags || [],
+        raw: question
+      }
+    ]
+  };
+};
+
+const buildQuestionFromKnowledgeChunk = (chunk: KnowledgeQuestionChunk): Question => {
+  const sourceQuestion = chunk.questions[0];
+  const raw = sourceQuestion.raw || {};
+  const validation = raw.validation || {};
+  const code = sourceQuestion.question_id.replace(/[^A-Za-z0-9_]/g, '_').toUpperCase();
+  const rules: ValidationRule[] = [];
+
+  if (sourceQuestion.required || validation.required) {
+    rules.push({
+      id: `vr_${code}_required`,
+      type: 'required',
+      fieldName: code,
+      expression: 'true',
+      reason: `${code} is mandatory for official questionnaire completeness`,
+      severity: 'fail'
+    });
+  }
+
+  const minValue = validation.min_value ?? validation.min;
+  const maxValue = validation.max_value ?? validation.max;
+  if (minValue !== undefined || maxValue !== undefined) {
+    const lower = minValue !== undefined ? `value >= ${minValue}` : 'true';
+    const upper = maxValue !== undefined ? `value <= ${maxValue}` : 'true';
+    rules.push({
+      id: `vr_${code}_range`,
+      type: 'range',
+      fieldName: code,
+      expression: `${lower} && ${upper}`,
+      reason: `${code} must remain within the official source bounds`,
+      severity: 'fail'
+    });
+  }
+
+  return {
+    id: `kb_inj_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    block: `Block: ${chunk.section}`,
+    code: `${code}_KB`,
+    text_en: sourceQuestion.question_text,
+    text_hi: textFromKnowledge(raw.text, 'hi') || sourceQuestion.question_text,
+    text_ta: textFromKnowledge(raw.text, 'ta') || sourceQuestion.question_text,
+    type: questionTypeFromKnowledge(sourceQuestion.answer_type),
+    options: sourceQuestion.options.length ? sourceQuestion.options : undefined,
+    validationRules: rules,
+    autoCodeAs: sourceQuestion.tags?.includes('nic') || sourceQuestion.standard_code?.includes('NIC') ? 'NIC' : sourceQuestion.tags?.includes('nco') || sourceQuestion.standard_code?.includes('NCO') ? 'NCO' : 'None',
+    sourceTrace: {
+      source_document: chunk.source,
+      section: chunk.section,
+      question_id: sourceQuestion.question_id,
+      language: 'en',
+      confidence: 0.94,
+      retrieved_context: sourceQuestion.purpose
+    },
+    generatedReason: `Injected from ${chunk.source} knowledge-base JSON chunk`,
+    retrievalConfidence: 94
+  };
+};
 
 const MOSPI_DOMAINS = [
   { value: 'Socio-Economic & Household', label: 'Socio-Economic & Household', prompt: 'socio-economic and household survey' },
@@ -599,8 +743,10 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
   const t = translations[lang];
 
   // SDRD Sub-page tabs
-  const [activeSubPage, setActiveSubPage] = useState<'my-surveys' | 'builder' | 'bank' | 'library' | 'validation' | 'logic' | 'publish'>('my-surveys');
+  const [activeSubPage, setActiveSubPage] = useState<'my-surveys' | 'builder' | 'database' | 'enumerator' | 'bank' | 'library' | 'validation' | 'logic' | 'publish' | 'translate'>('my-surveys');
   const [isRailCollapsed, setIsRailCollapsed] = useState<boolean>(false);
+  const [canvasMode, setCanvasMode] = useState<'flow' | 'design'>('flow');
+  const [databaseMode, setDatabaseMode] = useState<'qb' | 'code'>('qb');
 
   // Core Survey state
   const [surveys, setSurveys] = useState<Survey[]>([]);
@@ -632,6 +778,11 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
   const [isLibraryLoading, setIsLibraryLoading] = useState(false);
   const [libraryPage, setLibraryPage] = useState(1);
   const libraryPerPage = 15;
+  const [knowledgeQuestionChunks, setKnowledgeQuestionChunks] = useState<KnowledgeQuestionChunk[]>([]);
+  const [isKnowledgeLoading, setIsKnowledgeLoading] = useState(false);
+  const [knowledgeError, setKnowledgeError] = useState('');
+  const [isRealtimeTranslating, setIsRealtimeTranslating] = useState(false);
+  const [translationStatus, setTranslationStatus] = useState('');
 
   // Modals
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -642,17 +793,58 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
   // Properties sub-tab
   const [propTab, setPropTab] = useState<'label' | 'rules'>('label');
   const [successMsg, setSuccessMsg] = useState('');
+  const [editingValidationId, setEditingValidationId] = useState<string | null>(null);
 
   useEffect(() => {
     loadSurveys();
     loadClassificationCodes();
+    loadKnowledgeBaseChunks();
   }, []);
+
+  const loadKnowledgeBaseChunks = async () => {
+    setIsKnowledgeLoading(true);
+    setKnowledgeError('');
+    try {
+      const sources = [
+        { url: '/data/question_bank/question_bank.json', survey: 'Volume 1 / Volume 2 Question Bank', source: 'MoSPI Question Bank JSON' },
+        { url: '/data/knowledge_base/surveys/employment.json', survey: 'PLFS', source: 'Knowledge Base: Employment' },
+        { url: '/data/knowledge_base/surveys/health.json', survey: 'Health', source: 'Knowledge Base: Health' },
+        { url: '/data/knowledge_base/surveys/agriculture.json', survey: 'Agriculture', source: 'Knowledge Base: Agriculture' }
+      ];
+
+      const settled = await Promise.allSettled(sources.map(async (source) => {
+        const response = await fetch(source.url);
+        if (!response.ok) throw new Error(`${source.url} returned ${response.status}`);
+        const payload = await response.json();
+        const questions = Array.isArray(payload) ? payload : payload.questions || [];
+        const surveyName = payload.survey || payload.source || payload.domain || source.survey;
+        return questions
+          .filter((question: any) => textFromKnowledge(question.text ?? question.question_text ?? question.label))
+          .map((question: any) => normalizeKnowledgeChunk(question, {
+            survey: surveyName,
+            section: question.subdomain || question.category || payload.domain,
+            source: source.source
+          }));
+      }));
+
+      const chunks = settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+      setKnowledgeQuestionChunks(chunks);
+      const failed = settled.filter(result => result.status === 'rejected').length;
+      if (failed > 0) setKnowledgeError(`${failed} knowledge source(s) could not be loaded. Showing available chunks.`);
+    } catch (err: any) {
+      setKnowledgeError(err?.message || 'Knowledge-base chunks could not be loaded.');
+      setKnowledgeQuestionChunks([]);
+    } finally {
+      setIsKnowledgeLoading(false);
+    }
+  };
 
   const loadClassificationCodes = async () => {
     setIsLibraryLoading(true);
     try {
-      const cds = await api.getClassificationCodes();
-      setClassificationCodes(cds);
+      const types: ClassificationCode['type'][] = ['NCO', 'NIC', 'LGD', 'LGD_DISTRICT'];
+      const batches = await Promise.all(types.map(type => api.getClassificationCodes({ type, limit: 10000 })));
+      setClassificationCodes(batches.flat());
     } catch (err) {
       console.error("Failed to load classification codes", err);
     } finally {
@@ -852,24 +1044,27 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
         query,
         `Survey Domain: ${selectedDomain.label} (${selectedDomain.prompt}).`,
         `Target Language: ${selectedLanguage.prompt}. Show labels in ${selectedLanguage.label} where possible.`,
+        'Primary RAG sources: Volume 1 and Volume 2 official questionnaire banks.',
         'Use simple citizen-facing wording, source traceability, validation rules, and MoSPI DDI metadata.'
       ].join('\n');
+      setGenerationStep('Retrieving top questionnaire precedents from Volume 1 and Volume 2...');
       const generated = await api.generateSurveyFromPrompt(generationPrompt, {
         domain: selectedDomain.value,
         language: selectedLanguage
       });
+      setGenerationStep('Translating generated questionnaire across 22 official language views...');
+      const translatedGenerated = await api.translateSurveyToLanguages(generated, OFFICIAL_LANGUAGES);
       const initialQId = generated.questions.length > 0 ? generated.questions[0].id : null;
       const withSelections: Survey = {
-        ...generated,
+        ...translatedGenerated,
         surveyType: selectedDomain.label,
-        name_en: generated.name_en.includes(selectedDomain.label) ? generated.name_en : `${selectedDomain.label} - ${generated.name_en}`,
-        languages: ['en', selectedLanguage.code].filter((value, index, all) => all.indexOf(value) === index),
+        name_en: translatedGenerated.name_en.includes(selectedDomain.label) ? translatedGenerated.name_en : `${selectedDomain.label} - ${translatedGenerated.name_en}`,
+        languages: OFFICIAL_LANGUAGES.map(language => language.code),
         primaryLanguage: selectedLanguage.code,
-        questions: generated.questions.map(question => ({
+        questions: translatedGenerated.questions.map(question => ({
           ...question,
           translations: {
-            ...(question.translations || {}),
-            [selectedLanguage.code]: localizeQuestionText(question.text_en, selectedLanguage.code)
+            ...(question.translations || {})
           },
           sourceTrace: question.sourceTrace
             ? { ...question.sourceTrace, language: selectedLanguage.prompt }
@@ -982,6 +1177,16 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
     saveSurveyToDB(updated);
     setSelectedQuestionId(uniqueId);
     setSuccessMsg(`Successfully Injected '${cloned.code}' from PLFS repository bank into active survey!`);
+    setTimeout(() => setSuccessMsg(''), 4000);
+  };
+
+  const injectQuestionFromKnowledgeChunk = (chunk: KnowledgeQuestionChunk) => {
+    if (!selectedSurvey) return;
+    const question = buildQuestionFromKnowledgeChunk(chunk);
+    const updated = { ...selectedSurvey, questions: [...selectedSurvey.questions, question] };
+    saveSurveyToDB(updated);
+    setSelectedQuestionId(question.id);
+    setSuccessMsg(`Injected '${question.code}' from ${chunk.source} into the active survey.`);
     setTimeout(() => setSuccessMsg(''), 4000);
   };
 
@@ -1129,6 +1334,266 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
     if (langCode === 'ta') return question.text_ta || question.text_en;
     return question.translations?.[langCode] || localizeQuestionText(question.text_en, langCode);
   };
+  const pdfSafeText = (value: any) => String(value ?? '')
+    .normalize('NFKD')
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const wrapPdfLine = (text: string, limit = 92) => {
+    const words = pdfSafeText(text).split(' ').filter(Boolean);
+    const lines: string[] = [];
+    let line = '';
+    words.forEach((word) => {
+      const next = line ? `${line} ${word}` : word;
+      if (next.length > limit && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = next;
+      }
+    });
+    if (line) lines.push(line);
+    return lines.length ? lines : [''];
+  };
+  const escapePdf = (text: string) => text.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+  const buildSimplePdf = (title: string, lines: string[]) => {
+    const pageHeight = 792;
+    const marginTop = 742;
+    const lineHeight = 14;
+    const usableLines = 48;
+    const pages: string[][] = [];
+    for (let cursor = 0; cursor < lines.length; cursor += usableLines) {
+      pages.push(lines.slice(cursor, cursor + usableLines));
+    }
+
+    const objects: string[] = [];
+    objects.push('<< /Type /Catalog /Pages 2 0 R >>');
+    objects.push(`<< /Type /Pages /Kids [${pages.map((_, index) => `${3 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`);
+
+    pages.forEach((pageLines, pageIndex) => {
+      const pageObjectNumber = 3 + pageIndex * 2;
+      const contentObjectNumber = pageObjectNumber + 1;
+      objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 ${pageHeight}] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> /F2 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> >> >> /Contents ${contentObjectNumber} 0 R >>`);
+      const body = [
+        'BT',
+        '/F2 14 Tf',
+        `50 ${marginTop} Td`,
+        `(${escapePdf(pdfSafeText(title))}) Tj`,
+        '/F1 9 Tf',
+        `0 -${lineHeight * 2} Td`,
+        ...pageLines.flatMap((line) => [`(${escapePdf(line)}) Tj`, `0 -${lineHeight} Td`]),
+        'ET'
+      ].join('\n');
+      objects.push(`<< /Length ${body.length} >>\nstream\n${body}\nendstream`);
+    });
+
+    const header = '%PDF-1.4\n';
+    let body = '';
+    const offsets = [0];
+    objects.forEach((object, index) => {
+      offsets.push(header.length + body.length);
+      body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    });
+    const xrefOffset = header.length + body.length;
+    const xref = [
+      `xref`,
+      `0 ${objects.length + 1}`,
+      '0000000000 65535 f ',
+      ...offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n `),
+      'trailer',
+      `<< /Size ${objects.length + 1} /Root 1 0 R >>`,
+      'startxref',
+      String(xrefOffset),
+      '%%EOF'
+    ].join('\n');
+
+    return new Blob([header, body, xref], { type: 'application/pdf' });
+  };
+  const handleDownloadSurveyPdf = () => {
+    if (!selectedSurvey) return;
+    const languageNames = (selectedSurvey.languages?.length ? selectedSurvey.languages : OFFICIAL_LANGUAGES.map(language => language.code))
+      .map(code => OFFICIAL_LANGUAGES.find(language => language.code === code)?.prompt || code.toUpperCase())
+      .join(', ');
+    const lines = [
+      `Survey ID: ${selectedSurvey.id}`,
+      `Version: ${selectedSurvey.version}`,
+      `Status: ${selectedSurvey.status}`,
+      `Languages: ${languageNames}`,
+      `Questions: ${selectedSurvey.questions.length}`,
+      '',
+      'Questionnaire'
+    ];
+    selectedSurvey.questions.forEach((question, index) => {
+      lines.push('');
+      lines.push(`${index + 1}. ${question.code} (${question.type})`);
+      wrapPdfLine(`EN: ${question.text_en}`).forEach(line => lines.push(line));
+      if (question.text_hi && question.text_hi !== question.text_en) wrapPdfLine(`HI: ${question.text_hi}`).forEach(line => lines.push(line));
+      if (question.text_ta && question.text_ta !== question.text_en) wrapPdfLine(`TA: ${question.text_ta}`).forEach(line => lines.push(line));
+      if (question.options?.length) wrapPdfLine(`Options: ${question.options.join(' | ')}`).forEach(line => lines.push(line));
+      if (question.conditionalShow) wrapPdfLine(`Skip logic: ${question.conditionalShow}`).forEach(line => lines.push(line));
+      if (question.autoCodeAs && question.autoCodeAs !== 'None') lines.push(`Auto-code: ${question.autoCodeAs}`);
+    });
+
+    const blob = buildSimplePdf(selectedSurvey.name_en, lines);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${selectedSurvey.id || 'SATARK_SURVEY'}_questionnaire.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setSuccessMsg('Whole survey PDF downloaded from the CAPI preview.');
+    setTimeout(() => setSuccessMsg(''), 3500);
+  };
+  const formatAnswerType = (type: QuestionType) => {
+    if (type === 'single') return 'single_choice';
+    if (type === 'multi') return 'multiple_choice';
+    return type;
+  };
+  const surveyJsonChunks: KnowledgeQuestionChunk[] = selectedSurvey?.questions.map((question) => ({
+    survey: selectedSurvey.shortName || selectedSurvey.name_en,
+    section: question.block,
+    source: 'Active Survey Draft',
+    questions: [
+      {
+        question_id: question.code,
+        question_text: question.text_en,
+        answer_type: formatAnswerType(question.type),
+        options: question.options || [],
+        required: Boolean(question.validationRules?.some(rule => rule.type === 'required')),
+        purpose: question.sourceTrace?.section || question.generatedReason || question.block,
+        raw: question
+      }
+    ]
+  })) || [];
+  const bankJsonChunks: KnowledgeQuestionChunk[] = INITIAL_QUESTION_BANK.map((question) => ({
+    survey: domainFilter,
+    section: question.block,
+    source: 'Seed Question Bank',
+    questions: [
+      {
+        question_id: question.code,
+        question_text: question.text_en,
+        answer_type: formatAnswerType(question.type as QuestionType),
+        options: question.options || [],
+        required: Boolean(question.validationRules?.some(rule => rule.type === 'required')),
+        purpose: question.block,
+        raw: question
+      }
+    ]
+  }));
+  const qbJsonChunks = (knowledgeQuestionChunks.length ? knowledgeQuestionChunks : (surveyJsonChunks.length ? surveyJsonChunks : bankJsonChunks))
+    .filter((chunk) => {
+      if (!searchTerm.trim()) return true;
+      const haystack = JSON.stringify(chunk).toLowerCase();
+      return haystack.includes(searchTerm.toLowerCase());
+    });
+  const codeSearch = libraryQuery.trim().toLowerCase();
+  const lgdLocationChunks = PINCODE_LOCATIONS
+    .filter(location => {
+      if (!codeSearch) return true;
+      return [
+        location.pincode,
+        location.state,
+        location.district,
+        location.locality,
+        location.stateLgdCode,
+        location.districtLgdCode
+      ].filter(Boolean).some(value => String(value).toLowerCase().includes(codeSearch));
+    })
+    .map((location) => ({
+      code_type: libraryType,
+      code: libraryType === 'LGD' ? location.stateLgdCode || location.state : location.districtLgdCode || location.district,
+      state_lgd_code: location.stateLgdCode,
+      district_lgd_code: location.districtLgdCode,
+      state: location.state,
+      district: location.district,
+      pincode: location.pincode,
+      locality: location.locality,
+      latitude: location.lat,
+      longitude: location.lng,
+      source: 'LGD + PIN code registry'
+    }));
+  const codeJsonChunks: Array<Record<string, any> & { code_type: string; code: string }> = (libraryType === 'LGD' || libraryType === 'LGD_DISTRICT'
+    ? lgdLocationChunks
+    : filteredLibraryCodes.map((code) => ({
+      code_type: code.type === 'NCO' ? 'NCO / NOC' : code.type,
+      code: code.code,
+      label: code.label_en,
+      label_hi: code.label_hi,
+      label_ta: code.label_ta,
+      synonyms: code.synonyms,
+      source: `${code.type} official classification registry`
+    }))
+  ).slice(0, 24);
+  type ValidationMatrixRow = {
+    id: string;
+    sourceVariable: string;
+    ruleType: string;
+    expression: string;
+    logic: string;
+    extra: string;
+    owner: 'Official' | 'SATARK AI';
+    feedback: string;
+    severity: 'fail' | 'warn';
+  };
+  const validationRows: ValidationMatrixRow[] = selectedSurvey?.questions.flatMap((question, questionIndex) => {
+    const baseRows: ValidationMatrixRow[] = (question.validationRules || []).map((rule) => ({
+      id: rule.id,
+      sourceVariable: question.code,
+      ruleType: rule.type,
+      expression: rule.expression,
+      logic: question.conditionalShow || 'Sequential flow',
+      extra: question.autoCodeAs && question.autoCodeAs !== 'None' ? `Auto coding: ${question.autoCodeAs}` : question.sourceTrace?.source_document || 'Question-level validation',
+      owner: question.sourceTrace || rule.id.includes('ai') || rule.id.includes('ref') ? 'SATARK AI' : 'Official',
+      feedback: rule.reason,
+      severity: rule.severity
+    }));
+
+    if (question.conditionalShow) {
+      baseRows.push({
+        id: `${question.id}-skip`,
+        sourceVariable: question.code,
+        ruleType: 'skip',
+        expression: question.conditionalShow,
+        logic: `Show only when ${question.conditionalShow}`,
+        extra: 'Adaptive skip / branching logic',
+        owner: 'Official',
+        feedback: 'Question visibility controlled by configured skip expression',
+        severity: 'warn'
+      });
+    }
+
+    if (baseRows.length === 0) {
+      baseRows.push({
+        id: `${question.id}-review`,
+        sourceVariable: question.code,
+        ruleType: 'review',
+        expression: question.type === 'number' ? 'Add bounds / range rule' : 'No explicit rule configured',
+        logic: questionIndex === 0 ? 'Starts survey flow' : `Follows ${selectedSurvey.questions[questionIndex - 1]?.code || 'previous variable'}`,
+        extra: question.autoCodeAs && question.autoCodeAs !== 'None' ? `Auto coding: ${question.autoCodeAs}` : 'Needs official review',
+        owner: 'SATARK AI',
+        feedback: 'SATARK recommends adding a validation rule before deployment',
+        severity: 'warn'
+      });
+    }
+
+    return baseRows;
+  }) || [];
+  const translationRows = selectedSurvey?.questions.map((question) => {
+    const translatedText = getQuestionText(question, canvasLang);
+    const hasManualTranslation = canvasLang === 'en' || Boolean(question.translations?.[canvasLang]) || (canvasLang === 'hi' && question.text_hi) || (canvasLang === 'ta' && question.text_ta);
+    return {
+      id: question.id,
+      code: question.code,
+      original: question.text_en,
+      translated: translatedText,
+      issue: hasManualTranslation ? 'No blocking issue detected' : 'Machine fallback needs official language review',
+      improvement: question.options?.length ? 'Check option wording and local administrative terms' : 'Confirm statistical term precision with language reviewer',
+      status: hasManualTranslation ? 'Official / reviewed' : 'SATARK AI draft'
+    };
+  }) || [];
   const updateSelectedQuestionTranslation = (langCode: string, text: string) => {
     if (!selectedQuestion) return;
     if (langCode === 'en') return handleUpdateQuestionProperty('text_en', text);
@@ -1140,6 +1605,64 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
     });
   };
 
+  const handleCanvasLanguageChange = async (langCode: string) => {
+    setCanvasLang(langCode);
+    setTranslationStatus('');
+    if (!selectedSurvey || langCode === 'en') return;
+
+    const selectedLanguage = OFFICIAL_LANGUAGES.find(language => language.code === langCode);
+    const needsTranslation = selectedSurvey.questions.some(question => {
+      const hasText = Boolean(question.translations?.[langCode]) || (langCode === 'hi' && question.text_hi) || (langCode === 'ta' && question.text_ta);
+      const hasOptions = !question.options?.length || Boolean(question.options_i18n?.[langCode]?.length === question.options.length);
+      return !hasText || !hasOptions;
+    });
+
+    if (!needsTranslation) {
+      setTranslationStatus(`${selectedLanguage?.label || langCode} translations are already available for this survey.`);
+      return;
+    }
+
+    setIsRealtimeTranslating(true);
+    try {
+      const translatedTexts = await api.translateTexts(selectedSurvey.questions.map(question => question.text_en), langCode);
+      const optionTexts = selectedSurvey.questions.flatMap(question => question.options || []);
+      const translatedOptions = optionTexts.length ? await api.translateTexts(optionTexts, langCode) : [];
+      let optionCursor = 0;
+
+      const updatedQuestions = selectedSurvey.questions.map((question, index) => {
+        const optionCount = question.options?.length || 0;
+        const optionSlice = translatedOptions.slice(optionCursor, optionCursor + optionCount);
+        optionCursor += optionCount;
+
+        return {
+          ...question,
+          text_hi: langCode === 'hi' ? translatedTexts[index] || question.text_hi : question.text_hi,
+          text_ta: langCode === 'ta' ? translatedTexts[index] || question.text_ta : question.text_ta,
+          translations: {
+            ...(question.translations || {}),
+            [langCode]: translatedTexts[index] || question.text_en
+          },
+          options_i18n: optionCount > 0 ? {
+            ...(question.options_i18n || {}),
+            [langCode]: optionSlice.length ? optionSlice : (question.options || [])
+          } : question.options_i18n
+        };
+      });
+
+      const updatedSurvey = {
+        ...selectedSurvey,
+        languages: Array.from(new Set([...(selectedSurvey.languages || ['en']), langCode])),
+        questions: updatedQuestions
+      };
+      saveSurveyToDB(updatedSurvey);
+      setTranslationStatus(`Google Translate refreshed ${updatedQuestions.length} question label(s) in ${selectedLanguage?.label || langCode}.`);
+    } catch (err: any) {
+      setTranslationStatus(`Translation service could not complete this language: ${err?.message || 'unknown error'}.`);
+    } finally {
+      setIsRealtimeTranslating(false);
+    }
+  };
+
   return (
     <div className="space-y-6" id="sdrd-workspace-layout-root">
       
@@ -1148,9 +1671,9 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
         <div>
           <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
             <Laptop className="w-5 h-5 text-[#1A2A6C]" />
-            SATARK SDRD Survey Design Studio
+            Survey Designer (HSD / EnSD)
           </h1>
-          <p className="text-xs text-slate-500 mt-0.5 font-medium">Bilingual questionnaire builder, constraint validation matrix compiler, and source-traced draft generator.</p>
+          <p className="text-xs text-slate-500 mt-0.5 font-medium">Simple production workflow for survey quality.</p>
         </div>
         {selectedSurvey && (
           <div className="flex items-center gap-2">
@@ -1194,7 +1717,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
           <div className="space-y-5">
             <div className="flex items-center justify-between px-2 pb-2 border-b border-slate-100">
               <span className={`text-[10px] uppercase font-mono text-slate-400 tracking-wider font-extrabold ${isRailCollapsed ? 'hidden' : 'block'}`}>
-                SDRD Navigation
+                Survey Designer
               </span>
               <button 
                 onClick={() => setIsRailCollapsed(!isRailCollapsed)} 
@@ -1209,12 +1732,11 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
             <div className="space-y-1" role="tablist">
               {[
                 { id: 'my-surveys', label: 'My Surveys', icon: Home },
-                { id: 'builder', label: 'Builder Canvas', icon: Edit3, disabled: !selectedSurvey },
-                { id: 'bank', label: 'Question Bank', icon: BookOpen, disabled: !selectedSurvey },
-                { id: 'library', label: 'Code Library', icon: Tag },
-                { id: 'validation', label: 'Validation Rules', icon: ShieldCheck, disabled: !selectedSurvey },
-                { id: 'logic', label: 'Adaptive Logic', icon: GitBranch, disabled: !selectedSurvey },
-                { id: 'publish', label: 'Publish Staging', icon: Rocket, disabled: !selectedSurvey }
+                { id: 'builder', label: 'Survey Builder', icon: Edit3, disabled: !selectedSurvey },
+                { id: 'enumerator', label: 'Enumerator Client', icon: Users, disabled: !selectedSurvey },
+                { id: 'database', label: 'Database', icon: Tag, disabled: !selectedSurvey },
+                { id: 'validation', label: 'Validation Center', icon: ShieldCheck, disabled: !selectedSurvey },
+                { id: 'translate', label: 'Translation Center', icon: BookOpen, disabled: !selectedSurvey }
               ].map((item) => {
                 const IconComponent = item.icon;
                 const isActive = activeSubPage === item.id;
@@ -1263,7 +1785,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                     <Calendar className="w-3.5 h-3.5 text-rose-500" />
                     {!isRailCollapsed && <span>+ Date</span>}
                   </button>
-                  <button onClick={() => setActiveSubPage('bank')} className="p-1.5 border border-dashed border-indigo-200 hover:bg-slate-50 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-bold col-span-full">
+                  <button onClick={() => { setDatabaseMode('qb'); setActiveSubPage('database'); }} className="p-1.5 border border-dashed border-indigo-200 hover:bg-slate-50 text-indigo-700 rounded-lg transition-colors flex items-center gap-1 text-[11px] font-bold col-span-full">
                     <BookOpen className="w-3.5 h-3.5" />
                     {!isRailCollapsed && <span>+ Add from Bank</span>}
                   </button>
@@ -1342,7 +1864,7 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                           <td className="p-3.5">
                             <div className="flex gap-1">
                               <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">EN</span>
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded">22 languages</span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded">English + 22 scheduled languages</span>
                               <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">हिं</span>
                               <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">த</span>
                             </div>
@@ -1401,8 +1923,9 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start animate-fadeIn">
               
               {/* Center questionnaire list columns */}
-              <div className="lg:col-span-8 xl:col-span-9 space-y-4">
-                <div className="flex justify-between items-center pb-3 border-b border-rose-100">
+              <div className={`${canvasMode === 'flow' ? 'lg:col-span-12' : 'lg:col-span-8 xl:col-span-9'} space-y-4`}>
+                <div className="pb-3 border-b border-rose-100">
+                  <div className="flex justify-between items-center gap-3">
                   <div className="flex-1 mr-4">
                     <input 
                       type="text" 
@@ -1417,18 +1940,38 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                       <span>Version: {selectedSurvey.version}</span>
                     </div>
                   </div>
-
-                  <div className="shrink-0">
-                    <label className="mb-1 block text-[9px] font-black uppercase tracking-wider text-slate-400">Preview Language</label>
+                  </div>
+                  <div className="mt-3 flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50/80 p-2.5 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="inline-flex w-full overflow-hidden rounded-md border border-slate-200 bg-white p-0.5 text-[10px] font-black uppercase tracking-wide shadow-sm sm:w-auto">
+                      <button
+                        onClick={() => setCanvasMode('flow')}
+                        className={`flex-1 px-4 py-2 transition-colors sm:flex-none ${canvasMode === 'flow' ? 'bg-[#1A2A6C] text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                      >
+                        Flow Canvas
+                      </button>
+                      <button
+                        onClick={() => setCanvasMode('design')}
+                        className={`flex-1 px-4 py-2 transition-colors sm:flex-none ${canvasMode === 'design' ? 'bg-[#1A2A6C] text-white' : 'text-slate-500 hover:bg-slate-50'}`}
+                      >
+                        Design Canvas
+                      </button>
+                    </div>
+                    <label className="flex flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-slate-400 sm:flex-row sm:items-center">
+                      <span>Language</span>
                     <select
                       value={canvasLang}
-                      onChange={event => setCanvasLang(event.target.value)}
-                      className="max-w-[190px] rounded border border-slate-200 bg-white px-2 py-1 text-[11px] font-bold text-slate-700"
+                      onChange={event => handleCanvasLanguageChange(event.target.value)}
+                      disabled={isRealtimeTranslating}
+                        className="min-w-[210px] rounded border border-slate-200 bg-white px-2 py-2 text-[11px] font-bold normal-case tracking-normal text-slate-700"
                     >
                       {OFFICIAL_LANGUAGES.map(language => (
                         <option key={language.code} value={language.code}>{language.label}</option>
                       ))}
-                    </select>
+                  </select>
+                    {isRealtimeTranslating && (
+                      <span className="text-[10px] font-bold normal-case tracking-normal text-blue-600">Translating live...</span>
+                    )}
+                    </label>
                   </div>
                 </div>
 
@@ -1445,11 +1988,14 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                   </div>
                 )}
 
-                <SurveyFlowCanvas
-                  survey={selectedSurvey}
-                  selectedQuestionId={selectedQuestionId}
-                  onSelectQuestion={(id) => setSelectedQuestionId(id)}
-                />
+                {canvasMode === 'flow' ? (
+                  <SurveyFlowCanvas
+                    survey={selectedSurvey}
+                    selectedQuestionId={selectedQuestionId}
+                    onSelectQuestion={(id) => setSelectedQuestionId(id)}
+                  />
+                ) : (
+                  <>
 
                 {/* Question Cards stack */}
                 <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
@@ -1563,9 +2109,12 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                     );
                   })}
                 </div>
+                  </>
+                )}
               </div>
 
               {/* Right Panel workspace context */}
+              {canvasMode === 'design' && (
               <div className="lg:col-span-4 xl:col-span-3 min-w-0 bg-slate-50/50 border border-slate-200/65 rounded-xl p-4 min-h-[500px]">
                 {selectedQuestion ? (
                   <div className="space-y-4 animate-fadeIn">
@@ -1910,6 +2459,177 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                   </div>
                 )}
               </div>
+              )}
+            </div>
+          )}
+
+          {/* SUB-PAGE 3: DATABASE JSON CHUNKS */}
+          {activeSubPage === 'database' && selectedSurvey && (
+            <div className="space-y-5 animate-fadeIn font-semibold text-xs text-slate-700">
+              <div className="flex flex-col gap-3 border-b border-slate-100 pb-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-sm font-extrabold text-[#1A2A6C]">Database</h2>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Question Bank and official code registries shown as extracted JSON chunks.</p>
+                </div>
+                <div className="inline-flex overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 text-[10px] font-black uppercase tracking-wide">
+                  <button
+                    onClick={() => setDatabaseMode('qb')}
+                    className={`px-4 py-2 transition-colors ${databaseMode === 'qb' ? 'bg-[#1A2A6C] text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
+                  >
+                    QB
+                  </button>
+                  <button
+                    onClick={() => setDatabaseMode('code')}
+                    className={`px-4 py-2 transition-colors ${databaseMode === 'code' ? 'bg-[#1A2A6C] text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
+                  >
+                    CODE
+                  </button>
+                </div>
+              </div>
+
+              {databaseMode === 'qb' ? (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 lg:flex-row lg:items-center">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search question-bank JSON chunks by survey, question, domain, tag..."
+                        value={searchTerm}
+                        onChange={event => setSearchTerm(event.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs font-semibold text-slate-800"
+                      />
+                    </div>
+                    <button
+                      onClick={loadKnowledgeBaseChunks}
+                      disabled={isKnowledgeLoading}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#1A2A6C] px-3 py-2 text-[11px] font-extrabold text-white hover:bg-indigo-900 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isKnowledgeLoading ? 'animate-spin' : ''}`} />
+                      Refresh KB
+                    </button>
+                    <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-[10px] font-black uppercase text-emerald-700">
+                      {qbJsonChunks.length} chunks
+                    </span>
+                  </div>
+                  {knowledgeError && (
+                    <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] font-bold text-amber-800">
+                      {knowledgeError}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                    {isKnowledgeLoading ? (
+                      <div className="col-span-full py-12 flex flex-col items-center justify-center text-slate-450 gap-2.5">
+                        <RefreshCw className="w-8 h-8 text-[#1A2A6C] animate-spin" />
+                        <span className="text-xs font-bold animate-pulse">Loading RAG-ready question-bank JSON chunks...</span>
+                      </div>
+                    ) : qbJsonChunks.slice(0, 24).map((chunk, idx) => {
+                      return (
+                        <div key={`${chunk.questions[0].question_id}-${idx}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
+                            <div>
+                              <span className="font-mono text-[10px] font-black text-indigo-700">{chunk.questions[0].question_id}</span>
+                              <span className="ml-2 text-[10px] uppercase tracking-wider text-slate-400">{chunk.section}</span>
+                              <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-black uppercase text-emerald-700">{chunk.source}</span>
+                            </div>
+                            <button
+                              onClick={() => injectQuestionFromKnowledgeChunk(chunk)}
+                              className="rounded bg-[#1A2A6C] px-2.5 py-1 text-[9px] font-black text-white hover:bg-indigo-900"
+                            >
+                              Inject
+                            </button>
+                          </div>
+                          <pre className="max-h-72 overflow-auto whitespace-pre-wrap bg-[#fffaf3] p-4 font-mono text-[11px] leading-relaxed text-slate-800">
+                            {JSON.stringify(chunk, null, 2)}
+                          </pre>
+                        </div>
+                      );
+                    })}
+                    {!isKnowledgeLoading && qbJsonChunks.length === 0 && (
+                      <div className="col-span-full rounded-xl border border-dashed border-slate-200 p-8 text-center text-slate-400">
+                        No question-bank chunks found for "{searchTerm}".
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 lg:flex-row lg:items-center">
+                    <div className="flex flex-wrap gap-2 font-black text-[10px]">
+                      {[
+                        { id: 'NCO', label: 'NCO / NOC' },
+                        { id: 'NIC', label: 'NIC' },
+                        { id: 'LGD', label: 'LGD' },
+                        { id: 'LGD_DISTRICT', label: 'LGD District' }
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => handleSetLibraryType(item.id as any)}
+                          className={`rounded-md px-3 py-2 transition-colors ${
+                            libraryType === item.id ? 'bg-[#1A2A6C] text-white shadow-sm' : 'bg-white text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Search NIC, NCO/NOC, LGD code chunks..."
+                        value={libraryQuery}
+                        onChange={event => handleSetLibraryQuery(event.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-xs font-semibold text-slate-800"
+                      />
+                    </div>
+                    <button
+                      onClick={handleDownloadLibraryCSV}
+                      className="rounded-lg bg-emerald-700 px-3 py-2 text-[11px] font-extrabold text-white hover:bg-emerald-800"
+                    >
+                      Export CSV
+                    </button>
+                  </div>
+
+                  {isLibraryLoading ? (
+                    <div className="py-12 flex flex-col items-center justify-center text-slate-450 gap-2.5">
+                      <RefreshCw className="w-8 h-8 text-[#1A2A6C] animate-spin" />
+                      <span className="text-xs font-bold animate-pulse">Querying official registry database codes...</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                      {codeJsonChunks.map((chunk) => (
+                        <div key={`${chunk.code_type}-${chunk.code}`} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
+                            <span className="font-mono text-[10px] font-black text-indigo-700">{chunk.code_type}</span>
+                            <span className="rounded bg-indigo-50 px-2 py-0.5 font-mono text-[10px] font-black text-indigo-700">{chunk.code}</span>
+                          </div>
+                          <pre className="max-h-64 overflow-auto whitespace-pre-wrap bg-[#fffaf3] p-4 font-mono text-[11px] leading-relaxed text-slate-800">
+                            {JSON.stringify(chunk, null, 2)}
+                          </pre>
+                        </div>
+                      ))}
+                      {codeJsonChunks.length === 0 && (
+                        <div className="rounded-xl border border-dashed border-slate-200 p-8 text-center text-slate-400">
+                          No matching code chunks found for "{libraryQuery}".
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeSubPage === 'enumerator' && selectedSurvey && (
+            <div className="space-y-5 animate-fadeIn">
+              <div className="flex flex-col gap-2 border-b border-slate-100 pb-3">
+                <h2 className="text-sm font-extrabold text-[#1A2A6C]">Enumerator Client</h2>
+                <p className="text-[11px] text-slate-400">
+                  CAPI collection screen embedded inside Survey Design so SDRD can test the field experience before handoff.
+                </p>
+              </div>
+              <CollectionClient lang={lang} isColorBlind={isColorBlind} onResponseStored={() => setSuccessMsg('Enumerator client response stored from SDRD preview.')} />
             </div>
           )}
 
@@ -2109,11 +2829,11 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
               <div className="border-b border-slate-100 pb-3 flex justify-between items-center">
                 <div>
                   <h2 className="text-sm font-extrabold text-[#1A2A6C]">Constraints Validation Matrix Overview</h2>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Aggregates all range limitations, field dependencies, and cross-comparison logic configured in the survey.</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">All question rules, logic, skips, auto-code checks, and SATARK AI recommendations in one editable matrix.</p>
                 </div>
                 <div className="flex gap-2">
                   <span className="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-100 rounded text-[10px] font-mono">
-                    Total limits check: {selectedSurvey.questions.reduce((acc, q) => acc + (q.validationRules?.length || 0), 0)} rules
+                    Matrix rows: {validationRows.length}
                   </span>
                 </div>
               </div>
@@ -2126,31 +2846,147 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
                       <th className="p-3">Source Variable</th>
                       <th className="p-3">Rule Type</th>
                       <th className="p-3">Expression Formula</th>
+                      <th className="p-3">Logic / Skips / Extra</th>
+                      <th className="p-3">Applied By</th>
                       <th className="p-3">Emitted Feedback Error Msg</th>
                       <th className="p-3">Severity</th>
+                      <th className="p-3">Edit</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedSurvey.questions.flatMap(q => (q.validationRules || []).map(r => (
-                      <tr key={r.id} className="border-b border-slate-100 text-slate-650">
-                        <td className="p-3 font-mono font-extrabold text-indigo-700">{q.code}</td>
-                        <td className="p-3 uppercase text-[10px] font-bold font-mono">{r.type}</td>
-                        <td className="p-3 font-mono text-[11px] text-slate-800 bg-slate-50">{r.expression}</td>
-                        <td className="p-3 text-slate-700">{r.reason}</td>
+                    {validationRows.map(row => (
+                      <tr key={row.id} className={`border-b border-slate-100 text-slate-650 ${editingValidationId === row.id ? 'bg-indigo-50/60' : ''}`}>
+                        <td className="p-3 font-mono font-extrabold text-indigo-700">{row.sourceVariable}</td>
+                        <td className="p-3 uppercase text-[10px] font-bold font-mono">{row.ruleType}</td>
+                        <td className="p-3 font-mono text-[11px] text-slate-800 bg-slate-50">{row.expression}</td>
+                        <td className="p-3 text-[11px] leading-relaxed">
+                          <div className="font-mono text-slate-700">{row.logic}</div>
+                          <div className="mt-1 text-slate-400">{row.extra}</div>
+                        </td>
+                        <td className="p-3">
+                          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black ${
+                            row.owner === 'SATARK AI' ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                          }`}>
+                            {row.owner}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-700">{row.feedback}</td>
                         <td className="p-3">
                           <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
-                            r.severity === 'fail' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
+                            row.severity === 'fail' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
                           }`}>
-                            {r.severity}
+                            {row.severity}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <button
+                            onClick={() => {
+                              const target = selectedSurvey.questions.find(question => question.code === row.sourceVariable);
+                              if (target) {
+                                setSelectedQuestionId(target.id);
+                                setEditingValidationId(row.id);
+                                setPropTab('rules');
+                                setCanvasMode('design');
+                                setActiveSubPage('builder');
+                              }
+                            }}
+                            className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-black text-[#1A2A6C] hover:bg-slate-50"
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {validationRows.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="p-6 text-center text-slate-400 italic">No rules have been written in this questionnaire. Add validation specs in properties.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* SUB-PAGE 6: TRANSLATION REVIEW CENTER */}
+          {activeSubPage === 'translate' && selectedSurvey && (
+            <div className="space-y-5 animate-fadeIn font-semibold text-xs text-slate-700">
+              <div className="flex flex-col gap-3 border-b border-slate-100 pb-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-sm font-extrabold text-[#1A2A6C]">Translation Center</h2>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Review multilingual question text, translation issues, and improvements before deployment.</p>
+                </div>
+                <label className="flex flex-col gap-1 text-[9px] font-black uppercase tracking-wider text-slate-400">
+                  Language
+                  <select
+                    value={canvasLang}
+                    onChange={event => handleCanvasLanguageChange(event.target.value)}
+                    disabled={isRealtimeTranslating}
+                    className="min-w-[220px] rounded border border-slate-200 bg-white px-2 py-2 text-[11px] font-bold normal-case tracking-normal text-slate-700"
+                  >
+                    {OFFICIAL_LANGUAGES.map(language => (
+                      <option key={language.code} value={language.code}>{language.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {(isRealtimeTranslating || translationStatus) && (
+                <div className={`rounded-lg border px-3 py-2 text-[11px] font-bold ${
+                  isRealtimeTranslating ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                }`}>
+                  {isRealtimeTranslating ? 'Google Translate is converting question text and options in real time...' : translationStatus}
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <span className="block text-[9px] font-black uppercase text-slate-400">Language</span>
+                  <strong className="text-sm text-slate-900">{selectedCanvasLanguage.label}</strong>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <span className="block text-[9px] font-black uppercase text-slate-400">Questions</span>
+                  <strong className="text-sm text-slate-900">{translationRows.length}</strong>
+                </div>
+                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                  <span className="block text-[9px] font-black uppercase text-blue-500">AI Drafts</span>
+                  <strong className="text-sm text-blue-800">{translationRows.filter(row => row.status === 'SATARK AI draft').length}</strong>
+                </div>
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                  <span className="block text-[9px] font-black uppercase text-emerald-500">Reviewed</span>
+                  <strong className="text-sm text-emerald-800">{translationRows.filter(row => row.status !== 'SATARK AI draft').length}</strong>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <table className="w-full text-left font-medium">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-black uppercase text-slate-450">
+                      <th className="p-3">Question</th>
+                      <th className="p-3">Original</th>
+                      <th className="p-3">Translation</th>
+                      <th className="p-3">Issue</th>
+                      <th className="p-3">Improvement</th>
+                      <th className="p-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {translationRows.map(row => (
+                      <tr key={row.id} className="align-top text-slate-650">
+                        <td className="p-3 font-mono font-extrabold text-indigo-700">{row.code}</td>
+                        <td className="max-w-sm p-3 text-slate-800">{row.original}</td>
+                        <td className="max-w-sm p-3 font-medium text-slate-700">{row.translated}</td>
+                        <td className="p-3 text-[11px] text-slate-600">{row.issue}</td>
+                        <td className="p-3 text-[11px] text-slate-600">{row.improvement}</td>
+                        <td className="p-3">
+                          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black ${
+                            row.status === 'SATARK AI draft' ? 'border-blue-100 bg-blue-50 text-blue-700' : 'border-emerald-100 bg-emerald-50 text-emerald-700'
+                          }`}>
+                            {row.status}
                           </span>
                         </td>
                       </tr>
-                    )))}
-                    {selectedSurvey.questions.reduce((acc, q) => acc + (q.validationRules?.length || 0), 0) === 0 && (
-                      <tr>
-                        <td colSpan={5} className="p-6 text-center text-slate-400 italic">No rules have been written in this questionnaire. Add validation specs in properties.</td>
-                      </tr>
-                    )}
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -2384,8 +3220,19 @@ export const SDRDWorkspace: React.FC<SDRDWorkspaceProps> = ({ lang, isColorBlind
             <div className="flex-1 p-6 overflow-y-auto bg-slate-100/50 space-y-5">
               
               <div className="p-4 bg-white rounded-2xl border border-slate-150 space-y-1">
-                <h3 className="text-sm font-extrabold text-slate-900">{selectedSurvey.name_en}</h3>
-                <p className="text-[10px] text-slate-400 font-mono tracking-tight uppercase">Bilingual Design Evaluation Node Preview</p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900">{selectedSurvey.name_en}</h3>
+                    <p className="text-[10px] text-slate-400 font-mono tracking-tight uppercase">All-language Design Evaluation Node Preview</p>
+                  </div>
+                  <button
+                    onClick={handleDownloadSurveyPdf}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase text-emerald-800 hover:bg-emerald-100"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download Survey PDF
+                  </button>
+                </div>
               </div>
 
               {previewError && (

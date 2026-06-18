@@ -1,0 +1,922 @@
+ 
+1 
+ 
+ 
+ 
+ 
+NIC 2008 CODES& Its Description 
+(Sections, Divisions and Groups) 
+Section A 
+Agriculture, forestry and fishing 
+ 
+ 
+Division 01  Crop and animal production, hunting and related service activities 
+ 
+ 
+Group  011  
+Growing of non-perennial crops 
+Group  012  
+Growing of perennial crops 
+Group  013  
+Plant propagation 
+Group  014  
+Animal production 
+Group  015 
+Mixed farming 
+Group  016  
+Support activities to agriculture and post-harvest crop activities 
+Group  017  
+Hunting, trapping and related service activities 
+ 
+ 
+Division 02  Forestry and logging 
+ 
+ 
+Group  021  
+Silviculture and other forestry activities 
+Group  022  
+Logging 
+Group  023   Gathering of non-wood forest products 
+Group  024   Support services to forestry 
+ 
+ 
+Division 03  Fishing and aquaculture 
+ 
+ 
+Group  031  
+Fishing 
+Group  032  
+Aquaculture 
+ 
+ 
+Section B  
+Mining and quarrying 
+ 
+ 
+Division 05  Mining of coal and lignite 
+ 
+ 
+Group  051   Mining of hard coal 
+Group  052   Mining of lignite 
+ 
+ 
+Division 06  Extraction of crude petroleum and natural gas 
+ 
+ 
+Group  061   Extraction of crude petroleum 
+Group  062   Extraction of natural gas 
+ 
+ 
+Division 07  Mining of metal ores 
+ 
+ 
+Group  071  
+Mining of iron ores 
+Group  072  
+Mining of non-ferrous metal ores 
+ 
+2 
+ 
+Division 08  Other mining and quarrying 
+ 
+ 
+Group  081  
+Quarrying of stone, sand and clay 
+Group  089  
+Mining and quarrying n.e.c. 
+ 
+ 
+Division 09  Mining support service activities 
+ 
+ 
+Group  091  
+Support activities for petroleum and natural gas mining 
+Group  099  
+Support activities for other mining and quarrying 
+ 
+ 
+Section C  
+Manufacturing 
+ 
+ 
+Division 10  Manufacture of food products 
+ 
+ 
+Group  101  
+Processing and preserving of meat 
+Group  102  
+Processing and preserving of fish, crustaceans and molluscs 
+Group  103  
+Processing and preserving of fruit and vegetables 
+Group  104  
+Manufacture of vegetable and animal oils and fats 
+Group  105  
+Manufacture of dairy products 
+Group  106  
+Manufacture of grain mill products, starches and starch products 
+Group  107  
+Manufacture of other food products 
+Group  108  
+Manufacture of prepared animal feeds 
+ 
+ 
+Division 11  Manufacture of beverages 
+ 
+ 
+Group  110  
+Manufacture of beverages 
+ 
+ 
+Division 12  Manufacture of tobacco products 
+ 
+ 
+Group  120  
+Manufacture of tobacco products 
+ 
+ 
+Division 13  Manufacture of textiles 
+ 
+ 
+Group  131  
+Spinning, weaving and finishing of textiles 
+Group  139  
+Manufacture of other textiles 
+ 
+ 
+Division 14  Manufacture of wearing apparel 
+ 
+ 
+Group  141  
+Manufacture of wearing apparel, except fur apparel 
+Group  142  
+Manufacture of articles of fur 
+Group  143  
+Manufacture of knitted and crocheted apparel 
+ 
+ 
+Division 15  Manufacture of leather and related products 
+ 
+ 
+ 
+3 
+ 
+Group  151  
+Tanning and dressing of leather; manufacture of luggage, handbags, 
+saddlery and harness; dressing and dyeing of fur 
+Group  152  
+Manufacture of footwear 
+ 
+ 
+Division 16  Manufacture of wood and of products of wood and cork, except furniture; 
+manufacture of articles of straw and plaiting materials 
+ 
+ 
+Group  161  
+Sawmilling and planing of wood 
+Group  162  
+Manufacture of products of wood, cork, straw and plaiting materials 
+ 
+ 
+Division 17  Manufacture of paper and paper products 
+ 
+ 
+Group  170  
+Manufacture of paper and paper products 
+ 
+ 
+Division 18  Printing and reproduction of recorded media 
+ 
+ 
+Group  181  
+Printing and service activities related to printing 
+Group  182  
+Reproduction of recorded media 
+ 
+ 
+Division 19  Manufacture of coke and refined petroleum products 
+ 
+ 
+Group  191  
+Manufacture of coke oven products 
+Group  192  
+Manufacture of refined petroleum products 
+ 
+ 
+Division 20  Manufacture of chemicals and chemical products 
+ 
+ 
+Group  201  
+Manufacture of basic chemicals, fertilizer and nitrogen compounds, 
+plastics and synthetic rubber in primary forms 
+Group  202  
+Manufacture of other chemical products 
+Group  203  
+Manufacture of man-made fibres 
+ 
+ 
+Division 21  Manufacture of pharmaceuticals, medicinal chemical and botanical 
+products 
+ 
+ 
+Group  210  
+Manufacture of pharmaceuticals, medicinal chemical and botanical 
+products 
+ 
+ 
+Division 22  Manufacture of rubber and plastics products 
+ 
+ 
+Group  221  
+Manufacture of rubber products 
+Group  222  
+Manufacture of plastics products 
+ 
+ 
+Division 23  Manufacture of other non-metallic mineral products 
+ 
+ 
+ 
+4 
+ 
+Group  231  
+Manufacture of glass and glass products 
+Group  239  
+Manufacture of non-metallic mineral products n.e.c. 
+ 
+ 
+Division 24  Manufacture of basic metals 
+ 
+ 
+Group  241  
+Manufacture of basic iron and steel 
+Group  242  
+Manufacture of basic precious and other non-ferrous metals 
+Group  243  
+Casting of metals 
+ 
+ 
+Division 25  Manufacture of fabricated metal products, except machinery and 
+equipment 
+ 
+ 
+Group  251  
+Manufacture of structural metal products, tanks, reservoirs and steam 
+generators 
+Group  252  
+Manufacture of weapons and ammunition 
+Group  259  
+Manufacture of other fabricated metal products; metalworking service 
+activities 
+ 
+ 
+Division 26  Manufacture of computer, electronic and optical products 
+ 
+ 
+Group  261   Manufacture of electronic components 
+Group  262  
+Manufacture of computers and peripheral equipment 
+Group  263  
+Manufacture of communication equipment 
+Group  264   Manufacture of consumer electronics 
+Group  265  
+Manufacture of measuring, testing, navigating and control equipment; 
+watches and clocks 
+Group  266   Manufacture of irradiation, electromedical and electrotherapeutic 
+equipment 
+Group  267 
+Manufacture of optical instruments and equipment 
+Group  268   Manufacture of magnetic and optical media 
+ 
+ 
+Division 27  Manufacture of electrical equipment 
+ 
+ 
+Group  271   Manufacture of electric motors, generators, transformers and electricity 
+distribution and control apparatus 
+Group  272  
+Manufacture of batteries and accumulators 
+Group  273  
+Manufacture of wiring and wiring devices 
+Group  274   Manufacture of electric lighting equipment 
+Group  275   Manufacture of domestic appliances 
+Group  279   Manufacture of other electrical equipment 
+ 
+ 
+Division 28  Manufacture of machinery and equipment n.e.c. 
+ 
+ 
+Group  281  
+Manufacture of general purpose machinery 
+Group  282  
+Manufacture of special-purpose machinery 
+ 
+5 
+ 
+ 
+ 
+Division 29  Manufacture of motor vehicles, trailers and semi-trailers 
+ 
+ 
+Group  291 
+Manufacture of motor vehicles 
+Group  292  
+Manufacture of bodies (coachwork) for motor vehicles; manufacture of 
+trailers and semi-trailers 
+Group  293  
+Manufacture of parts and accessories for motor vehicles 
+ 
+ 
+Division 30  Manufacture of other transport equipment 
+ 
+ 
+Group  301  
+Building of ships and boats 
+Group  302   Manufacture of railway locomotives and rolling stock 
+Group  303   Manufacture of air and spacecraft and related machinery 
+Group  304   Manufacture of military fighting vehicles 
+Group  309  
+Manufacture of transport equipment n.e.c. 
+ 
+ 
+Division 31  Manufacture of furniture 
+ 
+ 
+Group  310   Manufacture of furniture 
+ 
+ 
+Division 32  Other manufacturing 
+ 
+ 
+Group  321  
+Manufacture of jewellery, bijouterie and related articles 
+Group  322   Manufacture of musical instruments 
+Group  323  
+Manufacture of sports goods 
+Group  324  
+Manufacture of games and toys 
+Group  325   Manufacture of medical and dental instruments and supplies 
+Group  329  
+Other manufacturing n.e.c. 
+ 
+ 
+Division 33  Repair and installation of machinery and equipment 
+ 
+ 
+Group  331  
+Repair of fabricated metal products, machinery and equipment 
+Group  332  
+Installation of industrial machinery and equipment 
+ 
+ 
+Section D  
+Electricity, gas, steam and air conditioning supply 
+ 
+ 
+Division 35  Electricity, gas, steam and air conditioning supply 
+ 
+ 
+Group  351   Electric power generation, transmission and distribution 
+Group  352   Manufacture of gas; distribution of gaseous fuels through mains 
+Group  353   Steam and air conditioning supply 
+ 
+ 
+Section E  
+Water supply; sewerage, waste management and remediation 
+activities 
+ 
+6 
+ 
+ 
+ 
+Division 36  Water collection, treatment and supply 
+ 
+ 
+Group  360  
+Water collection, treatment and supply 
+ 
+ 
+Division 37  Sewerage 
+ 
+ 
+Group  370   Sewerage 
+ 
+ 
+Division 38  Waste collection, treatment and disposal activities; materials recovery 
+ 
+ 
+Group  381  
+Waste collection 
+Group  382  
+Waste treatment and disposal 
+Group  383   Materials recovery 
+ 
+ 
+Division 39  Remediation activities and other waste management services 
+ 
+ 
+Group  390  
+Remediation activities and other waste management services 
+ 
+ 
+Section F  
+Construction 
+ 
+ 
+Division 41  Construction of buildings 
+ 
+ 
+Group  410   Construction of buildings 
+ 
+ 
+Division 42  Civil engineering 
+ 
+ 
+Group  421   Construction of roads and railways 
+Group  422  
+Construction of utility projects 
+Group  429   Construction of other civil engineering projects 
+ 
+ 
+Division 43  Specialized construction activities 
+ 
+ 
+Group  431  
+Demolition and site preparation 
+Group  432  
+Electrical, plumbing and other construction installation activities 
+Group  433   Building completion and finishing 
+Group  439   Other specialized construction activities 
+ 
+ 
+Section G  
+Wholesale and retail trade; repair of motor vehicles and motorcycles 
+ 
+ 
+Division 45  Wholesale and retail trade and repair of motor vehicles and motorcycles 
+ 
+ 
+Group  451  
+Sale of motor vehicles 
+Group  452   Maintenance and repair of motor vehicles 
+ 
+7 
+ 
+Group  453   Sale of motor vehicle parts and accessories 
+Group  454   Sale, maintenance and repair of motorcycles and related parts and 
+accessories 
+ 
+ 
+Division 46  Wholesale trade, except of motor vehicles and motorcycles 
+ 
+ 
+Group  461   Wholesale on a fee or contract basis 
+Group  462   Wholesale of agricultural raw materials and live animals 
+Group  463   Wholesale of food, beverages and tobacco 
+Group  464  
+Wholesale of household goods 
+Group  465  
+Wholesale of machinery, equipment and supplies 
+Group  466  
+Other specialized wholesale 
+Group  469   Non-specialized wholesale trade 
+ 
+ 
+Division 47  Retail trade, except of motor vehicles and motorcycles 
+ 
+ 
+Group  471  
+Retail sale in non-specialized stores 
+Group  472  
+Retail sale of food, beverages and tobacco in specialized stores 
+Group  473  
+Retail sale of automotive fuel in specialized stores 
+Group  474  
+Retail sale of information and communications equipment in specialized 
+stores 
+Group  475  
+Retail sale of other household equipment in specialized stores 
+Group  476  
+Retail sale of cultural and recreation goods in specialized stores 
+Group  477  
+Retail sale of other goods in specialized stores 
+Group  478  
+Retail sale via stalls and markets 
+Group  479  
+Retail trade not in stores, stalls or markets 
+ 
+ 
+Section H  
+Transportation and storage 
+ 
+ 
+Division 49  Land transport and transport via pipelines 
+ 
+ 
+Group  491  
+Transport via railways 
+Group  492  
+Other land transport 
+Group  493   Transport via pipeline 
+ 
+ 
+Division 50  Water transport 
+ 
+ 
+Group  501  
+Sea and coastal water transport 
+Group  502  
+Inland water transport 
+ 
+ 
+Division 51  Air transport 
+ 
+ 
+Group  511   Passenger air transport 
+Group  512   Freight air transport 
+ 
+8 
+ 
+ 
+ 
+Division 52  Warehousing and support activities for transportation 
+ 
+ 
+Group  521   Warehousing and storage 
+Group  522  
+Support activities for transportation 
+ 
+ 
+Division 53  Postal and courier activities 
+ 
+ 
+Group  531   Postal activities 
+Group  532  
+Courier activities 
+ 
+ 
+Section I  
+Accommodation and Food service activities 
+ 
+ 
+Division 55  Accommodation 
+ 
+ 
+Group  551   Short term accommodation activities 
+Group  552   Camping grounds, recreational vehicle parks and trailer parks 
+Group  559   Other accommodation 
+ 
+ 
+Division 56  Food and beverage service activities 
+ 
+ 
+Group  561   Restaurants and mobile food service activities 
+Group  562  
+Event catering and other food service activities 
+Group  563   Beverage serving activities 
+ 
+ 
+Section J  
+Information and communication 
+ 
+ 
+Division 58  Publishing activities 
+ 
+ 
+Group  581  
+Publishing of books, periodicals and other publishing activities 
+Group  582   Software publishing 
+ 
+ 
+Division 59  Motion picture, video and television programme production, sound 
+recording and music publishing activities 
+ 
+ 
+Group  591  
+Motion picture, video and television programme activities 
+Group  592  
+Sound recording and music publishing activities 
+ 
+ 
+Division 60  Broadcasting and programming activities 
+ 
+ 
+Group  601   Radio broadcasting 
+Group  602  
+Television  programming and broadcasting activities 
+ 
+ 
+Division 61  Telecommunications 
+ 
+9 
+ 
+ 
+ 
+Group  611   Wired telecommunications activities 
+Group  612   Wireless telecommunications activities 
+Group  613   Satellite telecommunications activities 
+Group  619   Other telecommunications activities 
+ 
+ 
+Division 62  Computer programming, consultancy and related activities 
+ 
+ 
+Group  620  
+Computer programming, consultancy and related activities 
+ 
+ 
+Division 63  Information service activities 
+ 
+ 
+Group  631  
+Data processing, hosting and related activities; web portals 
+Group  639  
+Other information service activities 
+ 
+ 
+Section K  
+Financial and insurance activities 
+ 
+ 
+Division 64  Financial service activities, except insurance and pension funding 
+ 
+ 
+Group  641  
+Monetary intermediation 
+Group  642   Activities of holding companies 
+Group  643   Trusts, funds and other financial vehicles 
+Group  649  
+Other financial service activities, except insurance and pension funding 
+activities 
+ 
+ 
+Division 65  Insurance, reinsurance and pension funding, except compulsory social 
+security 
+ 
+ 
+Group  651  
+Insurance 
+Group  652   Reinsurance 
+Group  653   Pension funding 
+ 
+ 
+Division 66  Other financial activities 
+ 
+ 
+Group  661  
+Activities auxiliary to financial service activities, except insurance    and 
+pension funding 
+Group  662  
+Activities auxiliary to insurance and pension funding 
+Group  663   Fund management activities 
+ 
+ 
+Section L  
+Real estate activities 
+ 
+ 
+Division 68  Real estate activities 
+ 
+ 
+Group  681   Real estate activities with own or leased property 
+Group  682   Real estate activities on a fee or contract basis 
+ 
+10 
+ 
+ 
+ 
+Section M  
+Professional, scientific and technical activities 
+ 
+ 
+Division 69  Legal and accounting activities 
+ 
+ 
+Group  691   Legal activities 
+Group  692   Accounting, bookkeeping and auditing activities; tax consultancy 
+ 
+ 
+Division 70  Activities of head offices; management consultancy activities 
+ 
+ 
+Group  701   Activities of head offices 
+Group  702   Management consultancy activities 
+ 
+ 
+Division 71  Architecture and engineering activities; technical testing and analysis 
+ 
+ 
+Group  711  
+Architectural and engineering activities and related technical consultancy 
+Group  712   Technical testing and analysis 
+ 
+ 
+Division 72  Scientific research and development 
+ 
+ 
+Group  721 
+Research and experimental development on natural sciences and 
+engineering 
+Group  722  
+Research and experimental development on social sciences and 
+humanities 
+ 
+ 
+Division 73  Advertising and market research 
+ 
+ 
+Group  731   Advertising 
+Group  732   Market research and public opinion polling 
+ 
+ 
+Division 74  Other professional, scientific and technical activities 
+ 
+ 
+Group  741   Specialized design activities 
+Group  742   Photographic activities 
+Group  749   Other professional, scientific and technical activities n.e.c. 
+ 
+ 
+Division 75  Veterinary activities 
+ 
+ 
+Group  750    Veterinary activities 
+ 
+ 
+Section N  
+Administrative and support service activities 
+ 
+ 
+Division 77  Rental and leasing activities 
+ 
+ 
+ 
+11 
+ 
+Group  771   Renting and leasing of motor vehicles 
+Group  772  
+Renting and leasing of personal and household goods 
+Group  773   Renting and leasing of other machinery, equipment and tangible goods 
+n.e.c. 
+Group  774   Leasing of nonfinancial intangible assets 
+ 
+ 
+Division 78  Employment activities 
+ 
+ 
+Group  781   Activities of employment placement agencies 
+Group  782   Temporary employment agency activities 
+Group  783   Human resources provision and management of human resources 
+functions 
+ 
+ 
+Division 79  Travel agency, tour operator and other reservation service activities 
+ 
+ 
+Group  791  
+Travel agency and tour operator activities 
+Group  799   Other reservation service activities 
+ 
+ 
+Division 80  Security and investigation activities 
+ 
+ 
+Group  801   Private security activities 
+Group  802   Security systems service activities 
+Group  803   Investigation activities 
+ 
+ 
+Division 81  Services to buildings and landscape activities 
+ 
+ 
+Group  811   Combined facilities support activities 
+Group  812  
+Cleaning activities 
+Group  813   Landscape care and maintenance service activities 
+ 
+ 
+Division 82  Office administrative, office support and other business support activities 
+ 
+ 
+Group  821  
+Office administrative and support activities 
+Group  822   Activities of call centres 
+Group  823   Organization of conventions and trade shows 
+Group  829  
+Business support service activities n.e.c. 
+ 
+ 
+Section O  
+Public administration and defence; compulsory social security 
+ 
+ 
+Division 84  Public administration and defence; compulsory social security 
+ 
+ 
+Group  841  
+Administration of the State and the economic and social policy of the 
+community 
+Group  842  
+Provision of services to the community as a whole 
+Group  843   Compulsory social security activities 
+ 
+12 
+ 
+Section P  
+Education 
+ 
+ 
+Division 85  Education 
+ 
+ 
+Group  851   Primary education 
+Group  852  
+Secondary education 
+Group  853   Higher education 
+Group  854  
+Other education 
+Group  855   Educational support services 
+ 
+ 
+Section Q  
+Human health and social work activities 
+ 
+ 
+Division 86  Human health activities 
+ 
+ 
+Group  861   Hospital activities 
+Group  862   Medical and dental practice activities 
+Group  869   Other human health activities 
+ 
+ 
+Division 87  Residential care activities 
+ 
+ 
+Group  871   Nursing care facilities 
+Group  872   Residential care activities for mental retardation, mental health and 
+substance abuse 
+Group  873  
+Residential care activities for the elderly and disabled 
+Group  879   Other residential care activities n.e.c. 
+ 
+ 
+Division 88  Social work activities without accommodation 
+ 
+ 
+Group  881   Social work activities without accommodation for the elderly and disabled 
+Group  889   Other social work activities without accommodation n.e.c. 
+ 
+ 
+Section R  
+Arts, entertainment and recreation 
+ 
+ 
+Division 90  Creative, arts and entertainment activities 
+ 
+ 
+Group  900  
+Creative, arts and entertainment activities 
+ 
+ 
+Division 91  Libraries, archives, museums and other cultural activities 
+ 
+ 
+Group  910  
+Libraries, archives, museums and other cultural activities 
+ 
+ 
+Division 92  Gambling and betting activities 
+ 
+ 
+Group  920  
+Gambling and betting activities 
+ 
+13 
+ 
+ 
+ 
+Division 93  Sports activities and amusement and recreation activities 
+ 
+ 
+Group  931  
+Sports activities 
+Group  932  
+Other amusement and recreation activities 
+ 
+ 
+Section S  
+Other service activities 
+ 
+ 
+Division 94  Activities of membership organizations 
+ 
+ 
+Group  941  
+Activities of business, employers and professional membership 
+organizations 
+Group  942   Activities of trade unions 
+Group  949  
+Activities of other membership organizations 
+ 
+ 
+ 

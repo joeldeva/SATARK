@@ -20,7 +20,7 @@ from models.platform import ClassificationCode
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-DATABASE_DIR = Path(__file__).resolve().parents[3].parent / "database (1)" / "database"
+DATABASE_DIR = Path(__file__).resolve().parents[3] / "database" / "database"
 
 
 def _read_csv(filename: str) -> list[dict]:

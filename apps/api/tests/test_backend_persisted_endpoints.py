@@ -5,7 +5,7 @@ from api.routes import router, set_db_dependency, set_generator
 from app.config import settings
 from app.database import SessionLocal, get_db, init_db
 from app.seed import seed_core_data
-from models.platform import Assignment, AuditLog, CodingResult, ConsentRecord, IntelligenceSession, Paradata, Response
+from models.platform import Assignment, AuditLog, ClassificationCode, CodingResult, ConsentRecord, IntelligenceSession, Paradata, Response
 
 
 class FakeGenerator:
@@ -211,10 +211,37 @@ def test_classification_codes_endpoints_persist():
     client = _client()
     sdrd = _token(client, "sdrd", "design123")
 
+    db = SessionLocal()
+    try:
+        for idx in range(12):
+            db.add(ClassificationCode(
+                code=f"ZZ{idx:03d}",
+                code_type="NIC",
+                label=f"Filler NIC {idx}",
+                synonyms=[],
+                external_source="test",
+            ))
+        db.add(ClassificationCode(
+            code="99999",
+            code_type="NIC",
+            label="Special spacecraft manufacturing",
+            synonyms=["orbital equipment"],
+            external_source="test",
+        ))
+        db.commit()
+    finally:
+        db.close()
+
     # Test GET /api/codes
     res = client.get("/api/codes", headers=sdrd)
     assert res.status_code == 200
     assert "codes" in res.json()
+
+    # Search must happen in SQL before limit, otherwise large parsed NIC/NCO
+    # libraries hide valid rows outside the first page.
+    searched = client.get("/api/codes?type=NIC&q=spacecraft&limit=1", headers=sdrd)
+    assert searched.status_code == 200
+    assert searched.json()["codes"][0]["code"] == "99999"
 
     # Test GET /api/codes/stats
     stats_res = client.get("/api/codes/stats", headers=sdrd)

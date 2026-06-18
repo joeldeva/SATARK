@@ -1,4 +1,4 @@
-import { Survey, Enumerator, ClassificationCode, SurveyResponse, User, IntelligenceSession, NationalMetrics, Question, ValidationRule } from './types';
+import { Survey, Enumerator, ClassificationCode, SurveyResponse, User, UserRole, IntelligenceSession, NationalMetrics, Question, ValidationRule } from './types';
 import { INITIAL_QUESTION_BANK, CLASSIFICATION_CODES, INITIAL_SURVEYS, INITIAL_ENUMERATORS, INITIAL_RESPONSES, SEED_USERS } from './mockData';
 
 // In dev, '' + '/api' is proxied by Vite to the backend. In the Firebase-hosted
@@ -6,7 +6,22 @@ import { INITIAL_QUESTION_BANK, CLASSIFICATION_CODES, INITIAL_SURVEYS, INITIAL_E
 const RAW_API_URL = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '');
 const API_ORIGIN = RAW_API_URL === '/api' ? '' : RAW_API_URL.replace(/\/api$/, '');
 const API_BASE = RAW_API_URL === '/api' ? '/api' : `${API_ORIGIN}/api`;
+const GOOGLE_TRANSLATE_API_KEY = ((import.meta as any).env?.VITE_GOOGLE_TRANSLATE_API_KEY || '').trim();
+const GOOGLE_TRANSLATE_TARGETS: Record<string, string> = {
+  kok: 'gom',
+  mni: 'mni-Mtei'
+};
 let productionMockFallback = false;
+
+type RagHit = {
+  text: string;
+  metadata?: Record<string, any>;
+  score?: number;
+  bucket?: string;
+};
+
+const RAG_BUCKETS = ['volume_1', 'volume_2', 'survey_generation', 'question_bank'];
+let localQuestionBankCache: any[] | null = null;
 
 export function isUsingProductionMockData(): boolean {
   return productionMockFallback;
@@ -57,6 +72,223 @@ function withFallbackTrace(question: Question, surveyTitle: string, index: numbe
     generatedReason: 'Included from reviewed question-bank precedent.',
     retrievalConfidence: Math.max(82, 96 - index)
   };
+}
+
+function decodeHtml(text: string): string {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  return textarea.value;
+}
+
+function normalizeAnswerType(type: string | undefined): Question['type'] {
+  const normalized = String(type || '').toLowerCase();
+  if (normalized.includes('multi')) return 'multi';
+  if (normalized.includes('number') || normalized.includes('numeric') || normalized.includes('integer')) return 'number';
+  if (normalized.includes('date')) return 'date';
+  if (normalized.includes('choice') || normalized.includes('single')) return 'single';
+  if (normalized.includes('text')) return 'text';
+  return 'single';
+}
+
+function normalizeRagHits(bucket: string, payload: any): RagHit[] {
+  const rawResults = payload?.results || payload?.matches || payload?.documents || payload?.hits || [];
+  return (Array.isArray(rawResults) ? rawResults : []).map((item: any): RagHit => {
+    const metadata = item.metadata || item.meta || {};
+    const text = metadata.text || metadata.question_text || item.text || item.content || item.document || '';
+    return {
+      text: String(text || '').trim(),
+      metadata,
+      score: typeof item.score === 'number' ? item.score : typeof item.distance === 'number' ? 1 - item.distance : undefined,
+      bucket: item.bucket || bucket
+    };
+  }).filter(hit => hit.text.length > 0);
+}
+
+function ragHitToQuestion(hit: RagHit, index: number): Question {
+  const metadata = hit.metadata || {};
+  const rawOptions = metadata.options || metadata.choices || [];
+  const options = Array.isArray(rawOptions)
+    ? rawOptions.map((option: any) => typeof option === 'string' ? option : option?.label?.en || option?.label || option?.value).filter(Boolean)
+    : [];
+  const answerType = normalizeAnswerType(metadata.answer_type || metadata.type || (options.length ? 'single_choice' : 'text'));
+  const code = String(metadata.question_id || metadata.qid || metadata.code || `RAG_Q_${String(index + 1).padStart(3, '0')}`).replace(/\s+/g, '_').toUpperCase();
+  const section = metadata.section || metadata.block || metadata.domain || 'Retrieved Question Bank';
+  const score = typeof hit.score === 'number' ? Math.round(Math.max(0, Math.min(1, hit.score)) * 100) : Math.max(82, 96 - index);
+  const sourceDocument = metadata.source_document || metadata.source || (hit.bucket === 'volume_1' ? 'Question Bank Volume 1' : hit.bucket === 'volume_2' ? 'Question Bank Volume 2' : hit.bucket || 'RAG Knowledge Base');
+
+  const validationRules: ValidationRule[] = [];
+  if (metadata.required || metadata.validation?.required) {
+    validationRules.push({
+      id: `rag_required_${code}`,
+      type: 'required',
+      fieldName: code,
+      expression: 'true',
+      reason: `${code} is mandatory as per retrieved questionnaire precedent`,
+      severity: 'fail'
+    });
+  }
+  if (metadata.validation?.min_value !== undefined || metadata.validation?.max_value !== undefined) {
+    const min = metadata.validation?.min_value ?? 0;
+    const max = metadata.validation?.max_value ?? 999999;
+    validationRules.push({
+      id: `rag_range_${code}`,
+      type: 'range',
+      fieldName: code,
+      expression: `value >= ${min} && value <= ${max}`,
+      reason: `Value must be between ${min} and ${max}`,
+      severity: 'fail'
+    });
+  }
+
+  return {
+    id: `rag_${code}_${index}`,
+    block: section,
+    code,
+    text_en: metadata.question_text || metadata.text || hit.text,
+    text_hi: metadata.text_hi || metadata.translations?.hi || metadata.question_text || hit.text,
+    text_ta: metadata.text_ta || metadata.translations?.ta || metadata.question_text || hit.text,
+    translations: metadata.translations || {},
+    type: answerType,
+    options: options.length ? options : answerType === 'single' ? ['Yes', 'No'] : [],
+    validationRules,
+    sourceTrace: {
+      source_document: sourceDocument,
+      section,
+      question_id: code,
+      language: metadata.language || 'English',
+      confidence: score,
+      retrieved_context: hit.text,
+      generated_reason: metadata.generated_reason || `Retrieved from ${sourceDocument} for this survey requirement.`
+    },
+    generatedReason: metadata.purpose || metadata.generated_reason || `Retrieved from ${sourceDocument}.`,
+    retrievalConfidence: score
+  };
+}
+
+function buildSurveyFromRag(prompt: string, ragHits: RagHit[], options?: { domain?: string; language?: { code: string; label: string; prompt: string } }): Survey {
+  const title = prompt.toLowerCase().includes('expenditure') || prompt.toLowerCase().includes('hces')
+    ? 'Household Consumer Expenditure Survey 2026'
+    : prompt.toLowerCase().includes('enterprise') || prompt.toLowerCase().includes('asuse')
+      ? 'Annual Survey of Unincorporated Sector Enterprises 2026'
+      : prompt.toLowerCase().includes('agri') || prompt.toLowerCase().includes('farm')
+        ? 'Agricultural Census 2026'
+        : 'Periodic Labour Force Survey 2026';
+  const uniqueQuestions = new Map<string, Question>();
+  ragHits.forEach((hit, index) => {
+    const question = ragHitToQuestion(hit, index);
+    if (!uniqueQuestions.has(question.code)) uniqueQuestions.set(question.code, question);
+  });
+  const questions = Array.from(uniqueQuestions.values()).slice(0, 24);
+
+  return {
+    ...INITIAL_SURVEYS[0],
+    name_en: title,
+    name_hi: title,
+    name_ta: title,
+    status: 'Draft',
+    surveyType: options?.domain || title,
+    questions: questions.length
+      ? questions
+      : INITIAL_QUESTION_BANK.map((q, index) => withFallbackTrace({ ...q }, title, index))
+  };
+}
+
+function tokenizeSearchText(text: string): string[] {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter(token => token.length > 2);
+}
+
+async function loadLocalQuestionBank(): Promise<any[]> {
+  if (localQuestionBankCache) return localQuestionBankCache;
+  try {
+    const response = await fetch('/data/question_bank/question_bank.json', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Local question bank unavailable');
+    localQuestionBankCache = await response.json();
+    return localQuestionBankCache || [];
+  } catch {
+    localQuestionBankCache = [];
+    return [];
+  }
+}
+
+async function localQuestionBankSearch(bucket: string, query: string): Promise<RagHit[]> {
+  const records = await loadLocalQuestionBank();
+  if (!records.length) return [];
+
+  const midpoint = Math.ceil(records.length / 2);
+  const sourceRecords = bucket === 'volume_1'
+    ? records.slice(0, midpoint)
+    : bucket === 'volume_2'
+      ? records.slice(midpoint)
+      : records;
+  const queryTokens = new Set(tokenizeSearchText(query));
+
+  return sourceRecords
+    .map((record, index) => {
+      const optionLabels = Array.isArray(record.options)
+        ? record.options.map((option: any) => option?.label?.en || option?.label || option?.value).filter(Boolean)
+        : [];
+      const searchable = [
+        record.text?.en,
+        record.domain,
+        record.subdomain,
+        record.category,
+        record.source,
+        record.standard_code,
+        ...(record.tags || []),
+        ...optionLabels
+      ].filter(Boolean).join(' ');
+      const tokens = tokenizeSearchText(searchable);
+      const matched = tokens.filter(token => queryTokens.has(token)).length;
+      const score = matched / Math.max(6, queryTokens.size);
+      return {
+        text: record.text?.en || '',
+        metadata: {
+          question_id: record.id,
+          code: record.standard_code || record.id,
+          section: record.subdomain || record.domain || 'Question Bank',
+          domain: record.domain,
+          source_document: bucket === 'volume_1' ? 'Question Bank Volume 1' : bucket === 'volume_2' ? 'Question Bank Volume 2' : 'Question Bank',
+          answer_type: record.type,
+          options: optionLabels,
+          validation: record.validation,
+          tags: record.tags,
+          translations: record.text,
+          purpose: record.category || record.domain
+        },
+        score: Math.min(0.98, Math.max(0.35, score + (record.source === 'PLFS' ? 0.08 : 0) + (record.source === 'NSS' ? 0.04 : 0))),
+        bucket,
+        index
+      };
+    })
+    .filter(hit => hit.text && hit.score >= 0.35)
+    .sort((a, b) => (b.score || 0) - (a.score || 0))
+    .slice(0, 12);
+}
+
+async function googleTranslateTexts(texts: string[], target: string): Promise<string[]> {
+  if (target === 'en') return texts;
+  if (!GOOGLE_TRANSLATE_API_KEY) throw new Error('Google Translate API key is not configured');
+  const googleTarget = GOOGLE_TRANSLATE_TARGETS[target] || target;
+
+  const response = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(GOOGLE_TRANSLATE_API_KEY)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      q: texts,
+      source: 'en',
+      target: googleTarget,
+      format: 'text'
+    })
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '');
+    throw new Error(`Google Translate failed for ${target}: ${response.status} ${detail}`);
+  }
+
+  const data = await response.json();
+  const translations = data?.data?.translations || [];
+  return texts.map((text, index) => decodeHtml(translations[index]?.translatedText || text));
 }
 
 function cloneSurveys(): Survey[] {
@@ -551,7 +783,7 @@ export function resolveAutoCoding(occupationText: string): { code: string; label
     code: 'None',
     label: 'Unclassified Free-Text',
     confidence: 30,
-    reason: 'Syntactic matching low; routed to DPD Officer manual queue'
+    reason: 'Syntactic matching low; routed to C&QCD manual queue'
   };
 }
 
@@ -632,33 +864,57 @@ function evaluateLocally(
 
 export const api = {
   // Authentication
-  async login(username: string): Promise<User> {
+  async login(username: string, passwordInput: string = '', roleInput?: UserRole): Promise<User> {
     const passwords: Record<string, string> = {
-      admin: 'admin123',
-      sdrd: 'design123',
+      hsd: 'hsd123',
+      ensd: 'ensd123',
       fod: 'field123',
-      dpd: 'process123',
-      scd: 'coord123'
+      cqcd: 'quality123',
+      diid: 'diid123',
+      aspd: 'aspd123',
+      cicd: 'cicd123',
+      cdd: 'cdd123'
     };
-    const password = passwords[username.toLowerCase()] || 'demo_password';
+    const normalizedUsername = username.toLowerCase().trim();
+    const normalizedRole = (roleInput || normalizedUsername) as UserRole;
+    const password = passwords[normalizedRole];
+    const backendCredentials: Record<UserRole, { username: string; password: string }> = {
+      hsd: { username: 'sdrd', password: 'design123' },
+      ensd: { username: 'sdrd', password: 'design123' },
+      fod: { username: 'fod', password: 'field123' },
+      cqcd: { username: 'dpd', password: 'process123' },
+      diid: { username: 'scd', password: 'coord123' },
+      aspd: { username: 'scd', password: 'coord123' },
+      cicd: { username: 'scd', password: 'coord123' },
+      cdd: { username: 'scd', password: 'coord123' }
+    };
+
+    if (!password || passwordInput !== password) {
+      throw new Error('Invalid SATARK credentials');
+    }
 
     let user: User;
     let token: string;
     try {
+      const backendLogin = backendCredentials[normalizedRole];
       const res = await request<{ user: any; token: string }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({
+          username: backendLogin?.username || normalizedUsername,
+          password: backendLogin?.password || password,
+          role: normalizedRole
+        })
       });
       user = {
         id: res.user.id,
         name: res.user.name,
-        role: res.user.role as any,
+        role: normalizedRole,
         region: res.user.region || 'Tamil Nadu'
       };
       token = res.token;
     } catch {
       markProductionMockData();
-      const seed = SEED_USERS.find((u) => u.username === username.toLowerCase()) || SEED_USERS[0];
+      const seed = SEED_USERS.find((u) => u.username === normalizedUsername || u.role === normalizedRole) || SEED_USERS[0];
       user = {
         id: `mock_${seed.username}`,
         name: seed.name,
@@ -753,6 +1009,10 @@ export const api = {
     options?: { domain?: string; language?: { code: string; label: string; prompt: string } }
   ): Promise<Survey> {
     let mapped: Survey;
+    const ragHits = await api.retrieveQuestionnaireKnowledge(prompt, {
+      domain: options?.domain,
+      language: options?.language?.code
+    });
     try {
       const res = await request<{ survey: any }>('/surveys/generate', {
         method: 'POST',
@@ -761,27 +1021,20 @@ export const api = {
           domain: options?.domain,
           language: options?.language?.code,
           language_label: options?.language?.label,
-          language_prompt: options?.language?.prompt
+          language_prompt: options?.language?.prompt,
+          rag_buckets: RAG_BUCKETS,
+          rag_context: ragHits.slice(0, 30).map(hit => ({
+            text: hit.text,
+            metadata: hit.metadata,
+            score: hit.score,
+            bucket: hit.bucket
+          }))
         })
       });
       mapped = mapDbSurveyToFe(res.survey);
     } catch {
       markProductionMockData();
-      const title = prompt.toLowerCase().includes('expenditure') || prompt.toLowerCase().includes('hces')
-        ? 'Household Consumer Expenditure Survey 2026'
-        : prompt.toLowerCase().includes('enterprise') || prompt.toLowerCase().includes('asuse')
-          ? 'Annual Survey of Unincorporated Sector Enterprises 2026'
-          : prompt.toLowerCase().includes('agri') || prompt.toLowerCase().includes('farm')
-            ? 'Agricultural Census 2026'
-            : 'Periodic Labour Force Survey 2026';
-      mapped = {
-        ...INITIAL_SURVEYS[0],
-        name_en: title,
-        name_hi: title,
-        name_ta: title,
-        status: 'Draft',
-        questions: INITIAL_QUESTION_BANK.map((q, index) => withFallbackTrace({ ...q }, title, index))
-      };
+      mapped = buildSurveyFromRag(prompt, ragHits, options);
     }
     const generatedId = `${toDdiSurveyId(`${prompt} ${mapped.name_en}`)}-DRAFT-${Date.now().toString().slice(-4)}`;
     mapped = {
@@ -903,9 +1156,13 @@ export const api = {
     }
   },
 
-  async getClassificationCodes(): Promise<ClassificationCode[]> {
+  async getClassificationCodes(options?: { type?: ClassificationCode['type']; query?: string; limit?: number }): Promise<ClassificationCode[]> {
     try {
-      const res = await request<{ codes: any[] }>('/codes?limit=2000');
+      const params = new URLSearchParams();
+      params.set('limit', String(options?.limit || 10000));
+      if (options?.type) params.set('type', options.type);
+      if (options?.query?.trim()) params.set('q', options.query.trim());
+      const res = await request<{ codes: any[] }>(`/codes?${params.toString()}`);
       return res.codes.map((c: any) => ({
         code: c.code,
         type: c.type,
@@ -918,6 +1175,16 @@ export const api = {
       markProductionMockData();
       return CLASSIFICATION_CODES;
     }
+  },
+
+  async askAssistant(question: string): Promise<{ answer: string; sources?: any[]; confidence?: number; store?: any }> {
+    const payload = await api.ragQuery('survey_generation', question);
+    return {
+      answer: payload.answer || payload.reply || 'No grounded answer was returned yet.',
+      sources: payload.sources || [],
+      confidence: payload.confidence,
+      store: payload.store
+    };
   },
 
   // Conversational collection answering steps
@@ -1076,7 +1343,7 @@ export const api = {
     try {
       await request(`/responses/${id}/review`, {
         method: 'POST',
-        body: JSON.stringify({ action: 'approve', reason: 'Approved via DPD review' })
+        body: JSON.stringify({ action: 'approve', reason: 'Approved via C&QCD review' })
       });
     } catch {
       markProductionMockData();
@@ -1088,7 +1355,7 @@ export const api = {
     try {
       await request(`/responses/${id}/review`, {
         method: 'POST',
-        body: JSON.stringify({ action: 're_interview', reason: 'Sent for re-interview via DPD review' })
+        body: JSON.stringify({ action: 're_interview', reason: 'Sent for re-interview via C&QCD review' })
       });
     } catch {
       markProductionMockData();
@@ -1175,6 +1442,93 @@ export const api = {
     }
   },
 
+  async retrieveQuestionnaireKnowledge(
+    question: string,
+    options?: { domain?: string; language?: string }
+  ): Promise<RagHit[]> {
+    const query = [
+      question,
+      options?.domain ? `Domain: ${options.domain}` : '',
+      options?.language ? `Language: ${options.language}` : '',
+      'Retrieve source questionnaire items, validation rules, options, skip logic, and purpose from Volume 1 and Volume 2 question banks.'
+    ].filter(Boolean).join('\n');
+
+    const settled = await Promise.allSettled(
+      RAG_BUCKETS.map(async (bucket) => {
+        const payload = await api.ragQuery(bucket, query);
+        return normalizeRagHits(bucket, payload);
+      })
+    );
+
+    const hits = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+    const seen = new Set<string>();
+    return hits
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .filter(hit => {
+        const key = `${hit.metadata?.question_id || hit.metadata?.qid || hit.text}`.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  },
+
+  async translateTexts(texts: string[], target: string): Promise<string[]> {
+    try {
+      return await googleTranslateTexts(texts, target);
+    } catch {
+      markProductionMockData();
+      return texts;
+    }
+  },
+
+  async translateSurveyToLanguages(
+    survey: Survey,
+    languages: Array<{ code: string; label: string; prompt: string }>
+  ): Promise<Survey> {
+    const translatedQuestions = survey.questions.map(question => ({
+      ...question,
+      translations: { ...(question.translations || {}) },
+      options_i18n: { ...(question.options_i18n || {}) }
+    }));
+
+    for (const language of languages) {
+      if (language.code === 'en') continue;
+
+      const questionTexts = translatedQuestions.map(question => question.text_en);
+      const translatedTexts = await api.translateTexts(questionTexts, language.code);
+      translatedTexts.forEach((text, index) => {
+        translatedQuestions[index].translations = {
+          ...(translatedQuestions[index].translations || {}),
+          [language.code]: text
+        };
+        if (language.code === 'hi') translatedQuestions[index].text_hi = text;
+        if (language.code === 'ta') translatedQuestions[index].text_ta = text;
+      });
+
+      const optionTexts = translatedQuestions.flatMap(question => question.options || []);
+      if (optionTexts.length > 0) {
+        const translatedOptions = await api.translateTexts(optionTexts, language.code);
+        let cursor = 0;
+        translatedQuestions.forEach(question => {
+          const count = question.options?.length || 0;
+          if (count > 0) {
+            question.options_i18n = {
+              ...(question.options_i18n || {}),
+              [language.code]: translatedOptions.slice(cursor, cursor + count)
+            };
+          }
+          cursor += count;
+        });
+      }
+    }
+
+    return {
+      ...survey,
+      languages: languages.map(language => language.code),
+      questions: translatedQuestions
+    };
+  },
+
   // RAG query & ingest
   async ragQuery(bucket: string, question: string): Promise<any> {
     try {
@@ -1184,6 +1538,19 @@ export const api = {
       });
     } catch {
       markProductionMockData();
+      const localHits = await localQuestionBankSearch(bucket, question);
+      if (localHits.length > 0) {
+        return {
+          bucket,
+          results: localHits.map(hit => ({
+            text: hit.text,
+            metadata: hit.metadata,
+            score: hit.score
+          })),
+          question,
+          mode: 'local_question_bank_retrieval'
+        };
+      }
       return {
         bucket,
         results: INITIAL_QUESTION_BANK.slice(0, 3).map((q, index) => ({
@@ -1259,7 +1626,7 @@ export const api = {
               code,
               label,
               confidence: 100,
-              reason: 'Manual override approved by DPD officer.'
+              reason: 'Manual override approved by C&QCD officer.'
             }
           }
         };

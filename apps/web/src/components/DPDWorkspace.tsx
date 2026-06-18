@@ -271,7 +271,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
         responseId,
         action: type,
         note: supervisorNote,
-        supervisorName: 'Amit Verma (DPD Officer)',
+        supervisorName: 'Amit Verma (C&QCD Officer)',
         timestamp: new Date().toISOString()
       };
 
@@ -464,7 +464,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              {tabKey === 'dashboard' ? 'DPD Dashboard' :
+              {tabKey === 'dashboard' ? 'C&QCD Dashboard' :
                tabKey === 'flag_review' ? 'Flag Review' :
                tabKey === 'coding' ? 'Coding Review' : 'Anomalies & Stats'}
             </button>
@@ -484,7 +484,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
           <div>
             <h2 className="font-extrabold text-sm text-slate-900">Live Data Pipeline</h2>
-            <p className="text-[11px] text-slate-500">Survey responses move through validation, DPD coding, approval, and SCD release.</p>
+            <p className="text-[11px] text-slate-500">Survey responses move through collection validation, C&QCD review, approval, and national intelligence release.</p>
           </div>
           <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase border ${
             isUsingProductionMockData()
@@ -495,7 +495,7 @@ export const DPDWorkspace: React.FC<DPDWorkspaceProps> = ({ lang, isColorBlind }
           </span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-[10px] font-bold">
-          {['Survey', 'Validation Engine', 'DPD Queue', 'Coding', 'Approval', 'SCD'].map((step, index) => (
+          {['Survey', 'Validation Engine', 'C&QCD Queue', 'Coding', 'Approval', 'National Output'].map((step, index) => (
             <div key={step} className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-700">
               <span className="block text-slate-400 uppercase">{index + 1}</span>
               <strong>{step}</strong>

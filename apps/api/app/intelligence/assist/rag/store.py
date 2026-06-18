@@ -27,7 +27,7 @@ from app.intelligence.assist.rag.embeddings import embed, embed_one
 
 logger = logging.getLogger(__name__)
 
-_VALID_BUCKETS = {"survey_generation", "validation", "general", "question_bank"}
+_VALID_BUCKETS = {"survey_generation", "validation", "general", "question_bank", "volume_1", "volume_2"}
 _LOCK = threading.Lock()
 _LOCAL_COLLECTIONS: dict[str, "_LocalCollection"] = {}
 _POSTGRES_COLLECTIONS: dict[str, "_PostgresCollection"] = {}
@@ -169,6 +169,24 @@ class _PostgresCollection:
         finally:
             db.close()
 
+    def delete_by_source_id(self, source_id: str) -> int:
+        from app.database import SessionLocal
+        from models.platform import RagChunk
+
+        db = SessionLocal()
+        try:
+            rows = db.query(RagChunk).filter(RagChunk.bucket == self.bucket, RagChunk.source_id == source_id).all()
+            count = len(rows)
+            for row in rows:
+                db.delete(row)
+            db.commit()
+            return count
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
 
 # Local fallback backend
 
@@ -236,6 +254,18 @@ class _LocalCollection:
 
     def count(self) -> int:
         return len(self._rows)
+
+    def delete_by_source_id(self, source_id: str) -> int:
+        before = len(self._rows)
+        self._rows = {
+            row_id: row
+            for row_id, row in self._rows.items()
+            if (row.get("metadata") or {}).get("source_id") != source_id
+        }
+        deleted = before - len(self._rows)
+        if deleted:
+            self._persist()
+        return deleted
 
 
 def _cosine(a: List[float], b: List[float]) -> float:
@@ -309,6 +339,26 @@ def upsert_chunks(
         embed_backend(),
     )
     return len(chunks)
+
+
+def delete_source_chunks(bucket: str, source_id: str) -> int:
+    """Delete all chunks for a stable source ID within a bucket."""
+    source_id = str(source_id or "").strip()
+    if not source_id:
+        return 0
+    bucket_key = _bucket_name(bucket)
+    collection = get_collection(bucket_key)
+    if collection is None:
+        raise RuntimeError("Vector store unavailable; cannot delete knowledge source chunks")
+    if hasattr(collection, "delete_by_source_id"):
+        return int(collection.delete_by_source_id(source_id))
+    if hasattr(collection, "delete"):
+        try:
+            collection.delete(where={"source_id": source_id})
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"Vector delete failed for bucket '{bucket_key}': {exc}") from exc
+    return 0
 
 
 def query(bucket: str, text: str, k: int = 5) -> List[Dict[str, Any]]:

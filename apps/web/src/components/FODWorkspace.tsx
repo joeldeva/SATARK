@@ -9,6 +9,8 @@ import { Enumerator, Survey, SurveyResponse } from '../types';
 import { INITIAL_SURVEYS, PINCODE_LOCATIONS, SURVEY_TYPES } from '../mockData';
 import { translations } from '../i18n';
 import { TrustBadge, ReasonPopover } from './TrustComponents';
+import { CollectionClient } from './CollectionClient';
+import { EnumeratorSandboxPage } from '../workspaces/fod/pages/EnumeratorSandboxPage';
 import { 
   Users, 
   User, 
@@ -63,8 +65,8 @@ interface FODAssignment {
 export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }) => {
   const t = translations[lang];
 
-  // FOD Sub-navigation Tabs: 'dashboard' | 'enumerators' | 'assignments' | 'monitor' | 'inspections'
-  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'enumerators' | 'assignments' | 'monitor' | 'inspections'>('dashboard');
+  // FOD Sub-navigation Tabs: dashboard | enumerators | assignments | monitor | client | inspections
+  const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'enumerators' | 'assignments' | 'monitor' | 'client' | 'inspections'>('dashboard');
 
   // Shared Core States
   const [enumerators, setEnumerators] = useState<Enumerator[]>([]);
@@ -325,7 +327,7 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
           </div>
 
           <div className="flex flex-wrap bg-slate-50 border border-slate-200 p-1 rounded-xl text-xs font-bold gap-1 self-stretch sm:self-auto">
-            {(['dashboard', 'enumerators', 'assignments', 'monitor', 'inspections'] as const).map(tab => (
+            {(['dashboard', 'enumerators', 'assignments', 'monitor', 'client', 'inspections'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveSubTab(tab)}
@@ -338,7 +340,8 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
                 {tab === 'dashboard' ? 'FOD Dashboard' :
                  tab === 'enumerators' ? 'Enumerators' :
                  tab === 'assignments' ? 'Deploy Surveys' :
-                 tab === 'monitor' ? 'Field Monitor' : 'Inspections'}
+                 tab === 'monitor' ? 'Field Monitor' :
+                 tab === 'client' ? 'Enumerator Client' : 'Inspections'}
               </button>
             ))}
           </div>
@@ -350,6 +353,48 @@ export const FODWorkspace: React.FC<FODWorkspaceProps> = ({ lang, isColorBlind }
         <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2 animate-fadeIn shadow-sm">
           <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{successToast}</span>
+        </div>
+      )}
+
+      {activeSubTab === 'client' && (
+        <div className="space-y-6">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Enumerator Client</h2>
+                <p className="mt-0.5 text-[11px] font-medium text-slate-500">
+                  CAPI/mobile data capture with live validation, paradata capture, auto-coding, and response persistence.
+                </p>
+              </div>
+              <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-[10px] font-black uppercase text-emerald-700">
+                App / Web Client Active
+              </span>
+            </div>
+            <CollectionClient
+              lang={lang}
+              isColorBlind={isColorBlind}
+              onResponseStored={() => {
+                loadFODAssignments();
+                loadFlaggedResponses();
+                triggerToast('Enumerator response stored. FOD monitor and quality dashboards refreshed.');
+              }}
+            />
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-col gap-2 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Channel API Sandbox</h2>
+                <p className="mt-0.5 text-[11px] font-medium text-slate-500">
+                  Starts sessions, sends questions, receives answers, and shows the shared validation verdict for WhatsApp, IVR, avatar, and web.
+                </p>
+              </div>
+              <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[10px] font-black uppercase text-blue-700">
+                Same Backend Pipeline
+              </span>
+            </div>
+            <EnumeratorSandboxPage lang={lang} isColorBlind={isColorBlind} />
+          </section>
         </div>
       )}
 

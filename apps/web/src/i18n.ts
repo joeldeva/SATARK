@@ -21,11 +21,11 @@ export const translations = {
     syncing: "Syncing data...",
     
     // Roles & Workspaces
-    role_admin: "Super Admin",
-    role_sdrd: "SDRD Officer",
+    role_admin: "System Administration",
+    role_sdrd: "HSD / EnSD Officer",
     role_fod: "FOD Supervisor",
-    role_dpd: "DPD Officer",
-    role_scd: "SCD Coordinator",
+    role_dpd: "C&QCD Officer",
+    role_scd: "Data Governance Vertical",
     role_enumerator: "Enumerator Client",
     
     dashboard: "Dashboard",
@@ -55,7 +55,7 @@ export const translations = {
     draftBtn: "Generate Draft Structure",
 
     // FOD Workspace
-    fod_title: "Field Operations & Enumerators",
+    fod_title: "Field Operation",
     enumeratorRoster: "Enumerator Trust Roster",
     activeAssignments: "Active Assignments",
     recentFlags: "Recent Integrity Flags",
@@ -65,7 +65,7 @@ export const translations = {
     flaggedResponses: "Flagged Surveys",
 
     // DPD Workspace
-    dpd_title: "Data Processing & Semantic Coding",
+    dpd_title: "Data Collection & Quality Assurance Hub",
     codingReview: "Semantic NCO/NIC Coding Review",
     validationQueue: "Adaptive Integrity Check Queue",
     suggestedCode: "Suggested Code",
@@ -77,7 +77,7 @@ export const translations = {
     paradataSheet: "Paradata Activity logs",
 
     // SCD Workspace
-    scd_command_title: "National Coordination & Command Center",
+    scd_command_title: "National Intelligence & Statistical Output Hub",
     liveFeed: "Live Security & Operations Incident Feed",
     metricsResponses: "Responses Today",
     metricsFlagged: "Flagged Responses",
@@ -118,11 +118,11 @@ export const translations = {
     syncing: "डेटा सिंक किया जा रहा है...",
 
     // Roles & Workspaces
-    role_admin: "सुपर एडमिन",
-    role_sdrd: "एस.डी.आर.डी. अधिकारी",
+    role_admin: "सिस्टम प्रशासन",
+    role_sdrd: "HSD / EnSD अधिकारी",
     role_fod: "एफ.ओ.डी. पर्यवेक्षक",
-    role_dpd: "डी.पी.डी. अधिकारी",
-    role_scd: "एस.सी.डी. समन्वयक",
+    role_dpd: "C&QCD अधिकारी",
+    role_scd: "डेटा गवर्नेंस वर्टिकल",
     role_enumerator: "प्रगणक क्लाइंट",
 
     dashboard: "डैशबोर्ड",
@@ -152,7 +152,7 @@ export const translations = {
     draftBtn: "ड्राफ्ट संरचना तैयार करें",
 
     // FOD Workspace
-    fod_title: "क्षेत्र संचालन और प्रगणक",
+    fod_title: "फील्ड ऑपरेशन",
     enumeratorRoster: "प्रगणक विश्वसनीयता सूची",
     activeAssignments: "सक्रिय आवंटन",
     recentFlags: "हालिया अखंडता चेतावनियां",
@@ -162,7 +162,7 @@ export const translations = {
     flaggedResponses: "ध्वजांकित सर्वेक्षण",
 
     // DPD Workspace
-    dpd_title: "डेटा प्रसंस्करण और सिमेंटिक कोडिंग",
+    dpd_title: "डेटा कलेक्शन और क्वालिटी एश्योरेंस हब",
     codingReview: "सिमेंटिक NCO/NIC कोडिंग समीक्षा",
     validationQueue: "अखंडता सत्यापन कतार",
     suggestedCode: "सुझाया गया कोड",
@@ -174,7 +174,7 @@ export const translations = {
     paradataSheet: "पैराडेटा गतिविधि लॉग",
 
     // SCD Workspace
-    scd_command_title: "राष्ट्रीय समन्वय एवं कमान केंद्र",
+    scd_command_title: "राष्ट्रीय इंटेलिजेंस और सांख्यिकीय आउटपुट हब",
     liveFeed: "लाइव सुरक्षा और परिचालन घटना फ़ीड",
     metricsResponses: "आज प्राप्त सर्वेक्षण",
     metricsFlagged: "ध्वजांकित सर्वेक्षण",
@@ -215,11 +215,11 @@ export const translations = {
     syncing: "தரவு ஒத்திசைக்கப்படுகிறது...",
 
     // Roles & Workspaces
-    role_admin: "சூப்பர் அட்மின்",
-    role_sdrd: "சமூக வடிவமைப்பு அதிகாரி",
+    role_admin: "சிஸ்டம் நிர்வாகம்",
+    role_sdrd: "HSD / EnSD அதிகாரி",
     role_fod: "களப் பணி மேற்பார்வையாளர்",
-    role_dpd: "தரவு செயலாக்க அதிகாரி",
-    role_scd: "தேசிய ஒருங்கிணைப்பாளர்",
+    role_dpd: "C&QCD அதிகாரி",
+    role_scd: "தரவு ஆளுமை பிரிவு",
     role_enumerator: "மதிப்பீட்டாளர் கிளையண்ட்",
 
     dashboard: "டாஷ்போர்டு",
@@ -249,7 +249,7 @@ export const translations = {
     draftBtn: "வரைவு கட்டமைப்பை உருவாக்கு",
 
     // FOD Workspace
-    fod_title: "களப்பணி மற்றும் மதிப்பீட்டாளர்கள்",
+    fod_title: "கள செயல்பாடு",
     enumeratorRoster: "மதிப்பீட்டாளர் நம்பகத்தன்மை பட்டியல்",
     activeAssignments: "செயலில் உள்ளீடுகள்",
     recentFlags: "சமீபத்திய பாதுகாப்பு மீறல்கள்",
@@ -259,7 +259,7 @@ export const translations = {
     flaggedResponses: "குறிக்கப்பட்ட கணக்கெடுப்புகள்",
 
     // DPD Workspace
-    dpd_title: "தரவு செயலாக்கம் மற்றும் குறியீட்டமைப்பு",
+    dpd_title: "தரவு சேகரிப்பு மற்றும் தர உறுதி மையம்",
     codingReview: "சிமென்டிக் NCO/NIC குறியீட்டு மதிப்பாய்வு",
     validationQueue: "ஒருங்கிணைந்த சரிபார்ப்பு வரிசை",
     suggestedCode: "பரிந்துரைக்கப்பட்ட குறியீடு",
@@ -271,7 +271,7 @@ export const translations = {
     paradataSheet: "பாரா-டேட்டா செயல்பாடு பதிவுகள்",
 
     // SCD Workspace
-    scd_command_title: "தேசிய ஒருங்கிணைப்பு மற்றும் கட்டுப்பாட்டு மையம்",
+    scd_command_title: "தேசிய நுண்ணறிவு மற்றும் புள்ளிவிவர வெளியீட்டு மையம்",
     liveFeed: "நேரடி பாதுகாப்பு மற்றும் களப்பணி சம்பவங்களின் விவரங்கள்",
     metricsResponses: "இன்றைய கணக்கெடுப்புகள்",
     metricsFlagged: "குறிக்கப்பட்ட கணக்கெடுப்புகள்",

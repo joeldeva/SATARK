@@ -109,6 +109,20 @@ async function sendToBackend(sender, text, reset = false) {
   return response.data;
 }
 
+async function assertBackendReady() {
+  try {
+    const response = await axios.get(`${BACKEND_URL}/health/ready`, { timeout: REQUEST_TIMEOUT_MS });
+    if (!response.data?.ready) {
+      logger.warn({ backend: BACKEND_URL, readiness: response.data }, 'SATARK backend is reachable but not fully ready');
+    } else {
+      logger.info({ backend: BACKEND_URL }, 'SATARK backend readiness check passed');
+    }
+  } catch (error) {
+    const details = error.response?.data || error.message;
+    logger.warn({ backend: BACKEND_URL, details }, 'SATARK backend readiness check failed; WhatsApp will still start and retry per message');
+  }
+}
+
 async function handleInbound(sock, sender, text) {
   const firstContact = !welcomedSenders.has(sender) && isGreeting(text);
   const restart = isRestart(text);
@@ -125,6 +139,7 @@ async function handleInbound(sock, sender, text) {
 }
 
 async function connectToWhatsApp() {
+  await assertBackendReady();
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version, isLatest } = await fetchLatestWaWebVersion().catch(() => ({
     version: [2, 3000, 1017577713],

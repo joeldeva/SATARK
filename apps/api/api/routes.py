@@ -511,8 +511,11 @@ async def codes(
     sector: str | None = Query(default=None),
     section: str | None = Query(default=None),
     parent_code: str | None = Query(default=None),
-    limit: int = Query(default=200, ge=1, le=2000),
+    limit: int = Query(default=500, ge=1, le=10000),
 ):
+    from sqlalchemy import String as SaString
+    from sqlalchemy import cast, or_
+
     from models.platform import ClassificationCode
 
     db = _open_db()
@@ -526,6 +529,15 @@ async def codes(
             query = query.filter(ClassificationCode.section == section.upper())
         if parent_code:
             query = query.filter(ClassificationCode.parent_code == parent_code)
+        if q:
+            needle = f"%{q.strip().lower()}%"
+            query = query.filter(or_(
+                ClassificationCode.code.ilike(needle),
+                ClassificationCode.label.ilike(needle),
+                ClassificationCode.family.ilike(needle),
+                ClassificationCode.sector.ilike(needle),
+                cast(ClassificationCode.synonyms, SaString).ilike(needle),
+            ))
         rows = query.order_by(ClassificationCode.code).limit(limit).all()
         results = [
             {
@@ -542,17 +554,6 @@ async def codes(
             }
             for r in rows
         ]
-        if q:
-            needle = q.lower()
-            results = [
-                c
-                for c in results
-                if needle in c.get("label", "").lower()
-                or needle in c.get("code", "").lower()
-                or any(needle in str(s).lower() for s in c.get("synonyms", []) or [])
-                or needle in (c.get("family") or "").lower()
-                or needle in (c.get("sector") or "").lower()
-            ]
         return {"codes": results}
     finally:
         db.close()

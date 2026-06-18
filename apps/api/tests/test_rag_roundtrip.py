@@ -90,3 +90,40 @@ def test_question_bank_returns_all_without_query(fresh_store):
     _store, qb = fresh_store
     everything = qb.all_questions()
     assert len(everything) >= 1
+
+
+def test_volume_buckets_and_loader_are_idempotent(fresh_store, tmp_path, monkeypatch):
+    store, _qb = fresh_store
+    import scripts.load_volume_rag_buckets as loader
+    from app.intelligence.assist.rag.service import answer
+
+    assert "volume_1" in store.status()["buckets"]
+    assert "volume_2" in store.status()["buckets"]
+
+    volume_path = tmp_path / "questions1.json"
+    volume_path.write_text(
+        '[{"question_id": "Q1", "content": "How many household members usually eat from a common kitchen?"}]',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(loader, "PROJECT_ROOT", tmp_path)
+
+    first = loader.load_volume("volume_1", volume_path)
+    assert first["written"] == 1
+
+    result = answer(question="common kitchen household members", bucket="volume_1", k=3)
+    assert result["bucket"] == "volume_1"
+    assert result["sources"]
+    assert result["sources"][0]["metadata"]["question_id"] == "Q1"
+
+    volume_path.write_text(
+        '[{"question_id": "Q2", "content": "Does the household own any land as of the survey date?"}]',
+        encoding="utf-8",
+    )
+    second = loader.load_volume("volume_1", volume_path)
+    assert second["written"] == 1
+    assert second["deleted"] == 1
+
+    result = answer(question="own any land survey date", bucket="volume_1", k=3)
+    question_ids = {source["metadata"].get("question_id") for source in result["sources"]}
+    assert "Q2" in question_ids
+    assert "Q1" not in question_ids

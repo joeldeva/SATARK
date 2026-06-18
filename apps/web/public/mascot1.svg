@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="SATARK mascot">
+  <rect width="180" height="180" rx="36" fill="#F8FAFC"/>
+  <circle cx="90" cy="78" r="48" fill="#8B5E3C"/>
+  <circle cx="67" cy="74" r="22" fill="#F4D6A7"/>
+  <circle cx="113" cy="74" r="22" fill="#F4D6A7"/>
+  <circle cx="67" cy="74" r="11" fill="#111827"/>
+  <circle cx="113" cy="74" r="11" fill="#111827"/>
+  <circle cx="71" cy="69" r="4" fill="#FFFFFF"/>
+  <circle cx="117" cy="69" r="4" fill="#FFFFFF"/>
+  <path d="M90 85l-10 12h20L90 85z" fill="#1F2937"/>
+  <path d="M51 37c11-16 28-22 39-12 11-10 28-4 39 12-12-5-25-3-39 6-14-9-27-11-39-6z" fill="#6B442D"/>
+  <path d="M45 113c17 14 72 14 90 0v38H45v-38z" fill="#0B2E5E"/>
+  <path d="M45 113c17 11 72 11 90 0v13c-21 11-69 11-90 0v-13z" fill="#14387F"/>
+  <path d="M56 127h68" stroke="#FF9933" stroke-width="5" stroke-linecap="round"/>
+  <path d="M122 43c-14-11-50-15-70-1l8-20c19-7 44-7 62 0v21z" fill="#0B2E5E"/>
+  <path d="M58 21c19-8 45-8 64 0 6 2 9 7 9 14H49c0-7 3-12 9-14z" fill="#12386F"/>
+  <path d="M77 35c11-5 24-5 35 0" stroke="#FF9933" stroke-width="4" stroke-linecap="round"/>
+  <path d="M64 146h52" stroke="#138808" stroke-width="5" stroke-linecap="round"/>
+  <text x="90" y="139" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="900" fill="#FFFFFF">SATARK</text>
+</svg>

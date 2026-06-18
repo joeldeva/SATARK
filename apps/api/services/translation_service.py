@@ -33,6 +33,7 @@ LANGUAGE_NAMES: dict[str, str] = {
     "ne": "Nepali",
     "sat": "Santali",
     "ks": "Kashmiri",
+    "sd": "Sindhi",
 }
 
 

@@ -72,6 +72,7 @@ htmlcov/
 # WhatsApp Bot (Baileys auth session)
 apps/whatsapp/auth_info_baileys/
 apps/whatsapp/auth_info_deployed/
+apps/whatsapp/auth_info_local/
 
 # Kiro internal
 .kiro/

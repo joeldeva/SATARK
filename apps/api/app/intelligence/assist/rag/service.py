@@ -16,7 +16,7 @@ from app.intelligence.assist.rag.store import status as store_status
 
 logger = logging.getLogger(__name__)
 
-_VALID_BUCKETS = {"survey_generation", "validation", "general", "question_bank"}
+_VALID_BUCKETS = {"survey_generation", "validation", "general", "question_bank", "volume_1", "volume_2"}
 
 
 def _normalize_bucket(bucket: str | None) -> str:

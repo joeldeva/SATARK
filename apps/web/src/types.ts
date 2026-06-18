@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type UserRole = 'admin' | 'sdrd' | 'fod' | 'dpd' | 'scd' | 'enumerator';
+export type UserRole = 'hsd' | 'ensd' | 'fod' | 'cqcd' | 'diid' | 'aspd' | 'cicd' | 'cdd';
 
 export interface User {
   id: string;
@@ -95,6 +95,8 @@ export interface PincodeLocation {
   state: string;
   district: string;
   locality: string;
+  stateLgdCode?: string;
+  districtLgdCode?: string;
   lat: number;
   lng: number;
 }
