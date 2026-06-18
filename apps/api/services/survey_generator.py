@@ -24,20 +24,30 @@ class SurveyGenerator:
         intent = self._plan_intent(prompt)
         target_count = intent.num_questions or 10
 
-        mandatory = self.rules.add_mandatory_questions(intent.domain)
         draft_questions = self._llm_draft_questions(intent)
-        needed = max(target_count - len(mandatory) - len(draft_questions), 0)
         search_query = " ".join([intent.domain] + intent.audience + intent.topics)
-        retrieved = self.rag.search(
-            query=search_query,
-            domain=intent.domain,
-            tags=intent.topics,
-            top_k=max(needed * 3, target_count),
-        )
-
-        questions = self._combine(mandatory, draft_questions, retrieved, target_count)
-        questions = self._fill_missing_questions(questions, intent, target_count)
-        questions = self.rules.apply_question_ordering(questions)
+        if draft_questions:
+            needed = max(target_count - len(draft_questions), 0)
+            retrieved = self.rag.search(
+                query=search_query,
+                domain=intent.domain,
+                tags=intent.topics,
+                top_k=max(needed * 2, needed),
+            ) if needed else []
+            questions = self._combine(draft_questions, retrieved, target_count)
+            questions = self._fill_missing_questions(questions, intent, target_count, topic_first=True)
+        else:
+            mandatory = self.rules.add_mandatory_questions(intent.domain)
+            needed = max(target_count - len(mandatory), 0)
+            retrieved = self.rag.search(
+                query=search_query,
+                domain=intent.domain,
+                tags=intent.topics,
+                top_k=max(needed * 3, target_count),
+            )
+            questions = self._combine(mandatory, retrieved, target_count)
+            questions = self._fill_missing_questions(questions, intent, target_count)
+            questions = self.rules.apply_question_ordering(questions)
         questions = [self.rules.add_validation_rules(question, intent.domain) for question in questions]
         logic = self.rules.generate_skip_logic(questions, intent.domain)
 
@@ -86,13 +96,13 @@ class SurveyGenerator:
 
         return combined
 
-    def _fill_missing_questions(self, questions: List[Dict], intent: ParsedIntent, target_count: int) -> List[Dict]:
+    def _fill_missing_questions(self, questions: List[Dict], intent: ParsedIntent, target_count: int, topic_first: bool = False) -> List[Dict]:
         if len(questions) >= target_count:
             return questions
 
         generated = list(questions)
         seen_ids = {question["id"] for question in generated}
-        templates = self._fallback_templates(intent)
+        templates = self._fallback_templates(intent, topic_first=topic_first)
         for template in templates:
             if len(generated) >= target_count:
                 break
@@ -102,12 +112,20 @@ class SurveyGenerator:
             seen_ids.add(template["id"])
         return generated
 
-    def _fallback_templates(self, intent: ParsedIntent) -> List[Dict]:
+    def _fallback_templates(self, intent: ParsedIntent, topic_first: bool = False) -> List[Dict]:
         domain = intent.domain or "household"
         topics = intent.topics or []
         location = intent.location_type or "survey area"
         topic_text = ", ".join(topics[:3]) or domain
-        base = [
+        topic_base = [
+            ("fb_topic_experience", f"What is the respondent's direct experience related to {topic_text}?", "text", "core", topics[:4] or [domain]),
+            ("fb_topic_frequency", f"How often did the respondent experience an issue related to {topic_text}?", "single_choice", "core", [*topics[:3], "frequency"]),
+            ("fb_topic_cost", f"What approximate cost, loss, or time burden was caused by {topic_text}?", "number", "sensitive", [*topics[:3], "cost"]),
+            ("fb_topic_cause", f"What was the main reason or cause reported for {topic_text}?", "single_choice", "core", [*topics[:3], "cause"]),
+            ("fb_topic_resolution", f"What action was taken to resolve or report the issue related to {topic_text}?", "single_choice", "follow_up", [*topics[:3], "resolution"]),
+            ("fb_topic_evidence", f"Can the enumerator verify the response about {topic_text} using records, observation, or respondent evidence?", "single_choice", "follow_up", [*topics[:3], "validation"]),
+        ]
+        demographic_base = [
             ("fb_dem_name", "What is the full name of the primary respondent?", "text", "demographic", ["name"]),
             ("fb_dem_age", "What is the respondent's age?", "number", "demographic", ["age"]),
             ("fb_dem_gender", "What is the respondent's gender?", "single_choice", "demographic", ["gender"]),
@@ -121,6 +139,7 @@ class SurveyGenerator:
             ("fb_verification", "Can the enumerator verify the response using household records or observation?", "single_choice", "follow_up", ["validation"]),
             ("fb_topic", f"What is the household's main issue or experience related to {topic_text}?", "text", "core", topics[:4] or [domain]),
         ]
+        base = topic_base + demographic_base if topic_first else demographic_base + topic_base
         questions = []
         for qid, text, question_type, category, tags in base:
             options = []

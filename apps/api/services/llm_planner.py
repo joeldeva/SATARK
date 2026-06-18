@@ -116,7 +116,8 @@ Rules:
 - Keep topics useful for retrieving official survey questions.
 - Propose 8 to 14 draft questions that are specific to the user's topic.
 - Keep every draft_questions[].text value in English. The SATARK translation layer will generate Indian-language labels after planning.
-- Avoid generic filler questions unless they are needed demographics.
+- Avoid generic filler questions. Do not add age, gender, marital status, education, or household-size questions unless the user explicitly asks for demographics or the topic genuinely requires them.
+- For a narrow prompt, every draft question must directly measure that prompt topic, its cause, impact, cost, frequency, location, evidence, or follow-up action.
 - For financial, policy, currency, or demonetisation prompts, use household as the domain and create topic-specific draft questions.
 - If the prompt asks for Hindi or Tamil, include that code plus "en".
 - Do not include markdown.

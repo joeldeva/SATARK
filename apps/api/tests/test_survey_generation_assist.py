@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from services.prompt_parser import ParsedIntent
 from services.prompt_parser import PromptParser
 from services.rule_engine import RuleEngine
 from services.survey_generator import SurveyGenerator
@@ -48,3 +49,78 @@ def test_generation_falls_back_to_full_draft_when_llm_fails():
     assert survey["metadata"]["llm"]["provider"] == "none"
     assert survey["metadata"]["llm"]["model"] == "free-model"
     assert survey["metadata"]["assist"]["is_verdict"] is False
+
+
+class KeyboardPlanner:
+    model = "gemma2:2b"
+
+    def plan(self, prompt: str):
+        return ParsedIntent(
+            domain="household",
+            audience=["general"],
+            location_type="urban",
+            topics=["laptop", "keyboard", "repair", "chennai"],
+            num_questions=7,
+            special_requirements=["validation"],
+            language=["en"],
+            planner="local_llm",
+            planner_model=self.model,
+            planner_confidence=95,
+            planner_reason="Prompt asks for a laptop keyboard issue survey in Chennai.",
+            assist_framework="test",
+            draft_questions=[
+                {
+                    "id": "llm_keyboard_happened",
+                    "domain": "household",
+                    "subdomain": "local_llm_prompt_specific",
+                    "text": "Have you experienced any issues with your laptop keyboard in Chennai?",
+                    "type": "single_choice",
+                    "category": "screening",
+                    "tags": ["laptop", "keyboard"],
+                    "options": [{"value": "yes", "label": "Yes"}, {"value": "no", "label": "No"}],
+                    "validation": {},
+                    "required": True,
+                },
+                {
+                    "id": "llm_keyboard_type",
+                    "domain": "household",
+                    "subdomain": "local_llm_prompt_specific",
+                    "text": "What type of laptop keyboard issue did you experience?",
+                    "type": "single_choice",
+                    "category": "core",
+                    "tags": ["laptop", "keyboard", "issue"],
+                    "options": [{"value": "typing", "label": "Typing issue"}, {"value": "keys", "label": "Keys not working"}],
+                    "validation": {},
+                    "required": True,
+                },
+                {
+                    "id": "llm_keyboard_cost",
+                    "domain": "household",
+                    "subdomain": "local_llm_prompt_specific",
+                    "text": "What was the approximate cost of repairing the laptop keyboard?",
+                    "type": "number",
+                    "category": "sensitive",
+                    "tags": ["laptop", "keyboard", "repair", "cost"],
+                    "options": [],
+                    "validation": {"type": "range", "min": 0, "max": 1000000},
+                    "required": True,
+                },
+            ],
+        )
+
+
+def test_llm_draft_questions_stay_prompt_specific_before_generic_bank_questions():
+    data_path = Path(__file__).resolve().parents[3] / "data"
+    kb = KnowledgeBaseLoader(base_path=str(data_path)).load_all()
+    generator = SurveyGenerator(PromptParser(), SimpleRAG(kb), RuleEngine(kb), llm_planner=KeyboardPlanner())
+
+    survey = generator.generate(
+        "Build a 7 question survey about laptop keyboard issues in Chennai with cost and satisfaction.",
+        "sdrd",
+    )
+
+    texts = [question["text"].lower() for question in survey["questions"]]
+    assert len(texts) == 7
+    assert texts[0].startswith("have you experienced any issues with your laptop keyboard")
+    assert any("repairing the laptop keyboard" in text for text in texts)
+    assert not any(text in {"what is the respondent's age?", "what is your age?"} for text in texts[:3])
