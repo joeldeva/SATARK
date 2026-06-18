@@ -61,8 +61,11 @@ async def lifespan(app: FastAPI):
             raise RuntimeError("LLM_PROVIDER=openrouter requires OPENROUTER_API_KEY")
         else:
             openrouter_timeout = min(settings.LLM_TIMEOUT_SECONDS, 45)
+            openrouter_model = settings.OPENROUTER_MODEL
+            if openrouter_model == "nex-agi/nex-n2-pro:free":
+                openrouter_model = "google/gemma-4-26b-a4b-it:free"
             llm_planner = OpenRouterPlanner(
-                model=settings.OPENROUTER_MODEL,
+                model=openrouter_model,
                 api_key=settings.OPENROUTER_API_KEY,
                 base_url=settings.OPENROUTER_BASE_URL,
                 timeout_seconds=openrouter_timeout,
@@ -70,7 +73,7 @@ async def lifespan(app: FastAPI):
             )
             logger.info(
                 "OpenRouter LLM planner enabled: %s via %s (timeout=%ss)",
-                settings.OPENROUTER_MODEL,
+                openrouter_model,
                 settings.OPENROUTER_BASE_URL,
                 openrouter_timeout,
             )
