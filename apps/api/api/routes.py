@@ -514,7 +514,7 @@ async def codes(
     limit: int = Query(default=500, ge=1, le=10000),
 ):
     from sqlalchemy import String as SaString
-    from sqlalchemy import cast, or_
+    from sqlalchemy import cast, case, desc, func, or_
 
     from models.platform import ClassificationCode
 
@@ -530,7 +530,8 @@ async def codes(
         if parent_code:
             query = query.filter(ClassificationCode.parent_code == parent_code)
         if q:
-            needle = f"%{q.strip().lower()}%"
+            term = q.strip().lower()
+            needle = f"%{term}%"
             query = query.filter(or_(
                 ClassificationCode.code.ilike(needle),
                 ClassificationCode.label.ilike(needle),
@@ -538,7 +539,19 @@ async def codes(
                 ClassificationCode.sector.ilike(needle),
                 cast(ClassificationCode.synonyms, SaString).ilike(needle),
             ))
-        rows = query.order_by(ClassificationCode.code).limit(limit).all()
+            label_lower = func.lower(ClassificationCode.label)
+            code_lower = func.lower(ClassificationCode.code)
+            query = query.order_by(
+                case(
+                    (code_lower == term, 0),
+                    (label_lower == term, 1),
+                    else_=2,
+                ),
+                desc(ClassificationCode.code),
+            )
+        else:
+            query = query.order_by(ClassificationCode.code)
+        rows = query.limit(limit).all()
         results = [
             {
                 "code": r.code,
