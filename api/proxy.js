@@ -1,4 +1,14 @@
 module.exports = async function handler(req, res) {
+  res.setHeader('access-control-allow-origin', '*');
+  res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('access-control-allow-headers', 'content-type,authorization');
+  res.setHeader('access-control-max-age', '86400');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
   const backendUrl = process.env.BACKEND_URL;
   if (!backendUrl) {
     res.status(503).json({ error: 'BACKEND_URL is not configured' });

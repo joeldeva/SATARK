@@ -12,7 +12,38 @@ class SimpleRAG:
         self.kb = kb
 
     def search(self, query, domain=None, tags=None, top_k=20):
-        return self.kb.get_questions_by_domain(domain)[:top_k]
+        questions = self.kb.get_questions_by_domain(domain)[:top_k]
+        if any(tag in {"laptop", "keyboard", "repair"} for tag in tags or []):
+            questions = [
+                {
+                    "id": "rag_keyboard_service",
+                    "domain": "household",
+                    "subdomain": "question_bank",
+                    "text": "Which repair channel was used for the laptop keyboard issue?",
+                    "type": "single_choice",
+                    "category": "core",
+                    "tags": ["laptop", "keyboard", "repair"],
+                    "options": [{"value": "authorized", "label": "Authorized service centre"}, {"value": "local", "label": "Local repair shop"}],
+                    "validation": {},
+                    "required": True,
+                    "source": "rag_question_bank",
+                },
+                {
+                    "id": "rag_keyboard_downtime",
+                    "domain": "household",
+                    "subdomain": "question_bank",
+                    "text": "How many days was the laptop unavailable due to the keyboard issue?",
+                    "type": "number",
+                    "category": "core",
+                    "tags": ["laptop", "keyboard", "downtime"],
+                    "options": [],
+                    "validation": {"type": "range", "min": 0, "max": 365},
+                    "required": True,
+                    "source": "rag_question_bank",
+                },
+                *questions,
+            ]
+        return questions[:top_k]
 
 
 def test_generated_survey_is_assist_only_and_needs_review():
@@ -120,7 +151,10 @@ def test_llm_draft_questions_stay_prompt_specific_before_generic_bank_questions(
     )
 
     texts = [question["text"].lower() for question in survey["questions"]]
+    sources = [question.get("source") for question in survey["questions"]]
     assert len(texts) == 7
     assert texts[0].startswith("have you experienced any issues with your laptop keyboard")
     assert any("repairing the laptop keyboard" in text for text in texts)
+    assert any(source == "local_llm_draft" for source in sources)
+    assert any(source in {"rag_question_bank", "satark_rag_pattern_bank"} for source in sources)
     assert not any(text in {"what is the respondent's age?", "what is your age?"} for text in texts[:3])

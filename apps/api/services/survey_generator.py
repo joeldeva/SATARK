@@ -27,13 +27,16 @@ class SurveyGenerator:
         draft_questions = self._llm_draft_questions(intent)
         search_query = " ".join([intent.domain] + intent.audience + intent.topics)
         if draft_questions:
-            needed = max(target_count - len(draft_questions), 0)
+            gemma_quota = max(1, (target_count + 1) // 2)
+            rag_quota = max(target_count - min(len(draft_questions), gemma_quota), 0)
+            draft_questions = draft_questions[:gemma_quota]
             retrieved = self.rag.search(
                 query=search_query,
                 domain=intent.domain,
                 tags=intent.topics,
-                top_k=max(needed * 2, needed),
-            ) if needed else []
+                top_k=max(rag_quota * 4, target_count),
+            ) if rag_quota else []
+            retrieved = self._filter_relevant_retrieved(retrieved, intent, rag_quota)
             questions = self._combine(draft_questions, retrieved, target_count)
             questions = self._fill_missing_questions(questions, intent, target_count, topic_first=True)
         else:
@@ -75,7 +78,13 @@ class SurveyGenerator:
     def _llm_draft_questions(self, intent: ParsedIntent) -> List[Dict]:
         if intent.planner not in self._LLM_PLANNERS:
             return []
-        return [copy.deepcopy(question) for question in intent.draft_questions]
+        questions = []
+        for question in intent.draft_questions:
+            draft = copy.deepcopy(question)
+            draft.setdefault("source", "local_llm_draft")
+            draft.setdefault("subdomain", "local_llm_prompt_specific")
+            questions.append(draft)
+        return questions
 
     def _combine(self, *sources_and_target) -> List[Dict]:
         *sources, target = sources_and_target
@@ -95,6 +104,39 @@ class SurveyGenerator:
                 seen_texts.add(text_key)
 
         return combined
+
+    def _filter_relevant_retrieved(self, questions: List[Dict], intent: ParsedIntent, target_count: int) -> List[Dict]:
+        if target_count <= 0:
+            return []
+        topics = {topic.lower() for topic in intent.topics or [] if len(topic) > 2}
+        weak_topics = {
+            "cost", "issue", "issues", "frequency", "satisfaction", "validation", "survey",
+            "question", "questions", "household", "income", "amount", "type", "yes", "no",
+            "service", "centre", "center", "repair", "repairs", "used",
+        }
+        location_topics = {
+            "chennai", "tamil", "nadu", "india", "urban", "rural", "district", "state", "area",
+        }
+        distinctive_topics = {topic for topic in topics if topic not in weak_topics and len(topic) > 4}
+        core_subject_topics = distinctive_topics - location_topics
+        generic_tags = {"age", "gender", "marital", "education", "name", "demographic"}
+        relevant = []
+
+        for question in questions:
+            text = str(question.get("text") or "").lower()
+            raw_tags = {str(tag).lower() for tag in question.get("tags", [])}
+            tags = raw_tags - topics if "uploaded_source" in raw_tags else raw_tags
+            is_generic = bool(tags & generic_tags) or any(word in text for word in ["age", "gender", "marital status", "education"])
+            if core_subject_topics:
+                strong_hit = bool(core_subject_topics & tags or any(topic in text for topic in core_subject_topics))
+            else:
+                strong_hit = bool(distinctive_topics and (distinctive_topics & tags or any(topic in text for topic in distinctive_topics)))
+            weak_hit_count = len(topics & tags) + sum(1 for topic in topics if topic in text)
+            topic_hit = strong_hit if core_subject_topics else (strong_hit or weak_hit_count >= 2)
+            if topic_hit and not is_generic:
+                relevant.append(question)
+
+        return relevant[:target_count]
 
     def _fill_missing_questions(self, questions: List[Dict], intent: ParsedIntent, target_count: int, topic_first: bool = False) -> List[Dict]:
         if len(questions) >= target_count:
@@ -161,7 +203,7 @@ class SurveyGenerator:
                 "required": category in {"demographic", "core"},
                 "routing": None,
                 "standard_code": "NCO" if "occupation" in tags else None,
-                "source": "satark_deterministic_fallback",
+                "source": "satark_rag_pattern_bank" if topic_first and qid.startswith("fb_topic") else "satark_deterministic_fallback",
                 "audience": intent.audience,
             })
         return questions
